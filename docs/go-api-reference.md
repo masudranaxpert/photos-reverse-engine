@@ -1,6 +1,6 @@
 # Go API Reference
 
-Complete reference for using the native Go core engine (`github.com/masudranaxpert/photos-reverse-engine/core`).
+Comprehensive reference for using the native Go core engine (`github.com/masudranaxpert/photos-reverse-engine/core`).
 
 ---
 
@@ -14,57 +14,141 @@ import "github.com/masudranaxpert/photos-reverse-engine/core"
 
 ## Client Constructor
 
-### `core.NewClient(authData string) (*core.Client, error)`
+### `NewClient()`
+
+```go
+func NewClient(authData string) (*Client, error)
+```
+
 Initializes a new Google Photos client instance.
-- **Parameters**: `authData`: The Master Token credential string in format `oauth2_rt_1/0...:49029607:androidId`. If empty, reads from the `AUTH_DATA` environment variable or `.env` file.
-- **Returns**: `*core.Client` pointer, or an error if credentials are empty or invalid.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `authData` | `string` | Credential string (`oauth2_rt_1/0...:49029607:androidId`). If empty, reads from `.env` or `AUTH_DATA` environment variable. |
+
+**Returns:**
+
+* `*core.Client`: Initialized client pointer, or an error if credentials are missing or invalid.
+
+**Example:**
+
+```go
+client, err := core.NewClient("")
+if err != nil {
+    log.Fatal(err)
+}
+```
 
 ---
 
 ## Client Methods
 
-### `client.GetToken(ctx context.Context) (string, error)`
-Retrieves an active OAuth2 Bearer token (`ya29...`).
-- **Thread-Safety**: Protected by `sync.RWMutex`.
-- **Auto-Refresh**: Automatically checks token expiration and refreshes transparently with a 5-minute proactive buffer.
+### `GetToken()`
 
-### `client.GetDownloadURL(ctx context.Context, mediaKey string) (*core.DownloadInfo, error)`
-Fetches the original quality media download stream URL, original filename, exact byte size, SHA-1 checksum, and deduplication key.
-- **Parameters**: `ctx`: Context for timeout/cancellation; `mediaKey`: Google Photos item media key.
-- **Returns**: `*core.DownloadInfo` struct.
+```go
+func (c *Client) GetToken(ctx context.Context) (string, error)
+```
 
-### `client.CreateShareLink(ctx context.Context, mediaKeys []string) (*core.PublicShareLink, error)`
-Creates an official `https://photos.app.goo.gl/...` public share link for one or more media keys using endpoint `11663664809460121647`.
-- **Parameters**: `mediaKeys`: Slice of media keys to share.
-- **Returns**: `*core.PublicShareLink` struct containing `ShareURL`, `MediaKey`, and `AuthKey`.
+Retrieves an active OAuth2 Bearer token (`ya29...`) with thread-safe RWMutex caching and automatic 5-minute proactive token refresh.
 
-### `client.CreateAlbum(ctx context.Context, albumName string, mediaKeys []string) (*core.ShareInfo, error)`
+---
+
+### `GetDownloadURL()`
+
+```go
+func (c *Client) GetDownloadURL(ctx context.Context, mediaKey string) (*DownloadInfo, error)
+```
+
+Fetches the original-quality media stream download URL, filename, file size in bytes, SHA-1 checksum, and deduplication key.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `ctx` | `context.Context` | Context for cancellation / timeout. |
+| `mediaKey` | `string` | Unique media key of the item. |
+
+**Returns:**
+
+* `*core.DownloadInfo`: Download stream URL and metadata struct.
+
+---
+
+### `CreateShareLink()`
+
+```go
+func (c *Client) CreateShareLink(ctx context.Context, mediaKeys []string) (*PublicShareLink, error)
+```
+
+Calls internal Google Photos envelope endpoint `11663664809460121647` to generate an official public `https://photos.app.goo.gl/...` short link for one or more media keys.
+
+---
+
+### `CreateAlbum()`
+
+```go
+func (c *Client) CreateAlbum(ctx context.Context, albumName string, mediaKeys []string) (*ShareInfo, error)
+```
+
 Creates a new shared album containing the specified media keys.
-- **Parameters**: `albumName`: Name of the album; `mediaKeys`: Slice of media keys to include.
-- **Returns**: `*core.ShareInfo` struct.
 
-### `client.ImportSharedMedia(ctx context.Context, mediaKeys []string, authKey, albumKey string) (*core.SaveResult, error)`
-Saves shared media items into the user's personal Google Photos library with Google Pixel XL hardware spoofing (unlimited original quality backup).
-- **Parameters**: `mediaKeys`: Slice of item media keys; `authKey`: Shared album auth key; `albumKey`: Target album key (optional).
-- **Returns**: `*core.SaveResult` with `Status` (2 = success) and `NewKeys`.
+---
 
-### `client.FindMediaByHash(ctx context.Context, sha1Bytes []byte) (*core.ExistResult, error)`
-Performs a fast deduplication lookup to check if a file with the given 20-byte SHA-1 hash already exists in the user's account.
-- **Parameters**: `sha1Bytes`: Exactly 20 bytes representing the SHA-1 hash of the file.
-- **Returns**: `*core.ExistResult` (`Exists`, `MediaKey`, `DedupKey`).
+### `ImportSharedMedia()`
 
-### `client.MoveToTrash(ctx context.Context, dedupKey string) error`
-Moves an active item to the trash bin using its URL-safe base64 deduplication key.
+```go
+func (c *Client) ImportSharedMedia(ctx context.Context, mediaKeys []string, authKey, albumKey string) (*SaveResult, error)
+```
 
-### `client.DeletePermanently(ctx context.Context, dedupKey string) error`
+Saves shared media items into the user's Google Photos account using Google Pixel XL hardware spoofing (unlimited original quality backup status).
+
+---
+
+### `FindMediaByHash()`
+
+```go
+func (c *Client) FindMediaByHash(ctx context.Context, sha1Bytes []byte) (*ExistResult, error)
+```
+
+Performs a fast deduplication check by querying Google Photos with a 20-byte SHA-1 hash to verify if a file already exists in the account.
+
+---
+
+### `DeleteByMediaKey()`
+
+```go
+func (c *Client) DeleteByMediaKey(ctx context.Context, mediaKey string) error
+```
+
+Convenience method that resolves the item's raw deduplication key, moves it to trash, and permanently deletes it immediately.
+
+---
+
+### `MoveToTrash()`
+
+```go
+func (c *Client) MoveToTrash(ctx context.Context, dedupKey string) error
+```
+
+Moves an item to trash using its URL-safe base64 deduplication key.
+
+---
+
+### `DeletePermanently()`
+
+```go
+func (c *Client) DeletePermanently(ctx context.Context, dedupKey string) error
+```
+
 Permanently expunges an item from trash using its URL-safe base64 deduplication key.
-
-### `client.DeleteByMediaKey(ctx context.Context, mediaKey string) error`
-Convenience method that resolves the media key's deduplication key, moves it to trash, and permanently deletes it in a single atomic sequence.
 
 ---
 
 ## Data Structures
+
+### `DownloadInfo`
 
 ```go
 type DownloadInfo struct {
@@ -74,26 +158,42 @@ type DownloadInfo struct {
     SHA1Hex     string `json:"sha1_hex"`
     DedupKey    string `json:"dedup_key"`
 }
+```
 
+### `PublicShareLink`
+
+```go
 type PublicShareLink struct {
     ShareURL string `json:"share_url"`
     MediaKey string `json:"media_key"`
     AuthKey  string `json:"auth_key"`
 }
+```
 
+### `ShareInfo`
+
+```go
 type ShareInfo struct {
     Title     string   `json:"title"`
     ShareURL  string   `json:"share_url"`
     AuthKey   string   `json:"auth_key"`
     MediaKeys []string `json:"media_keys"`
 }
+```
 
+### `SaveResult`
+
+```go
 type SaveResult struct {
     Status  int      `json:"status"`
     Success bool     `json:"success"`
     NewKeys []string `json:"new_keys"`
 }
+```
 
+### `ExistResult`
+
+```go
 type ExistResult struct {
     Exists   bool   `json:"exists"`
     Sha1Hex  string `json:"sha1_hex"`
@@ -106,6 +206,6 @@ type ExistResult struct {
 
 ## Concurrency & Performance
 
-- **Goroutine-Safe**: `*core.Client` is safe for concurrent use across multiple goroutines.
-- **Context-Aware**: All RPC calls accept `context.Context` for fine-grained timeouts and cancellations.
-- **Transparent Gzip**: Responses from `photosdata-pa.googleapis.com` are decompressed automatically with zero stream truncation.
+* **Goroutine Safety**: All client operations and token refreshes are protected by `sync.RWMutex`.
+* **Context Cancellation**: Full support for `context.WithTimeout` and `context.WithCancel`.
+* **Zero Allocation Protobuf**: Native wire-level encoding avoiding heavy reflection.
