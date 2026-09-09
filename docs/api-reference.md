@@ -254,3 +254,68 @@ class ExistResult:
     media_key: str    # Media key if exists, empty otherwise
     dedup_key: str    # Dedup key if exists, empty otherwise
 ```
+
+### `CookieStatus`
+
+```python
+@dataclass
+class CookieStatus:
+    valid: bool                 # True if cookies are active
+    session_id: str = "default" # Session identifier
+    account: Optional[str]      # Connected Google email address
+    message: str                # Human-readable status message
+```
+
+### `DriveImportResult`
+
+```python
+@dataclass
+class DriveImportResult:
+    drive_file_id: str          # Original Google Drive file ID
+    media_key: str              # Newly created Google Photos media key
+    dedup_key: str              # Deduplication key in Photos
+    download_url: Optional[str] # Direct stream download URL
+```
+
+---
+
+## Web Client & Cookies API
+
+For cookie-authenticated web sessions, Google Drive to Photos imports, and session database persistence.
+
+### `NativeWebClient` (Go Core DLL Powered)
+
+Direct ctypes FFI binding to the native Go GPWC core engine:
+
+```python
+from photos_engine import NativeWebClient
+
+# 1. Quick status check without keeping persistent handle
+status = NativeWebClient.check_status("cookies_data_here")
+
+# 2. Stateful client with compiled Go core performance
+with NativeWebClient(cookies="cookies_data_here") as client:
+    result = client.import_from_drive("GOOGLE_DRIVE_FILE_ID", cleanup=True)
+    print("Download URL:", result.download_url)
+```
+
+### `GooglePhotosWebClient` (httpcloak & Database Sessions)
+
+High-level Python web client supporting pluggable session storage (SQLite, PostgreSQL, MySQL) and automatic rotating cookie synchronization:
+
+```python
+from photos_engine import GooglePhotosWebClient, DatabaseCookieStore
+
+# Database-backed session store with customizable table and column names
+store = DatabaseCookieStore(
+    db_source="cookies.db",
+    table_name="my_sessions",
+    session_id_col="sess_id",
+    blob_col="blob_data",
+)
+
+with GooglePhotosWebClient(store=store) as client:
+    status = client.check_status(session_id="default")
+    print("Account:", status.account)
+```
+

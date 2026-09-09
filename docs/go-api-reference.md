@@ -152,6 +152,138 @@ Permanently expunges an item from trash using its URL-safe base64 deduplication 
 
 ---
 
+---
+
+## Web Client & Cookie Authentication (GPWC)
+
+For web-based operations, cookie-authenticated workflows, and importing Google Drive files directly into Google Photos, use `core.WebClient`.
+
+### Cookie Management
+
+#### `ParseCookies()`
+
+```go
+func ParseCookies(raw string) (Cookie, error)
+```
+
+Parses raw cookie data automatically from Netscape `cookies.txt` format, JSON export format, or raw `Cookie: ...` header strings.
+
+#### `CheckCookieStatus()`
+
+```go
+func CheckCookieStatus(cookie Cookie) (*CookieStatus, error)
+```
+
+Performs a live validation check against `photos.google.com/?_t=...` and extracts the associated Google account email (`"oPEP7c"`).
+
+---
+
+### `NewWebClient()`
+
+```go
+func NewWebClient(cookie Cookie) (*WebClient, error)
+```
+
+Initializes a Google Photos Web Client with the parsed cookies, automatically fetching required session tokens (`f.sid`, `bl`, `at`) from `photos.google.com`.
+
+---
+
+### Web Client Methods
+
+#### `ImportFromDrive()`
+
+```go
+func (c *WebClient) ImportFromDrive(driveFileID string, mimeType string, cleanup bool) (*DriveImportResult, error)
+```
+
+Imports a Google Drive file into Google Photos using internal `SusGud` batchexecute RPC, automatically fetches the direct download URL via `VrseUb`, and optionally cleans up the imported file from trash.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `driveFileID` | `string` | *required* | The Google Drive file ID. |
+| `mimeType` | `string` | `"video/*"` | MIME type of the file. |
+| `cleanup` | `bool` | `false` | If `true`, permanently deletes the photo from library after import. |
+
+**Returns:**
+
+* `*core.DriveImportResult`: Struct containing `DriveFileID`, `MediaKey`, `DedupKey`, and direct `DownloadURL`.
+
+---
+
+#### `GetDownloadURL()` (Web)
+
+```go
+func (c *WebClient) GetDownloadURL(mediaKey string) (*DownloadInfo, error)
+```
+
+Retrieves direct download URL and deduplication key using web RPC `VrseUb` (`GetItemInfo`).
+
+---
+
+#### `CreateShareLink()` (Web)
+
+```go
+func (c *WebClient) CreateShareLink(mediaKey string) (*PublicShareLink, error)
+```
+
+Generates a public `photos.app.goo.gl` link using web RPC `SFKp8c`.
+
+---
+
+### Go Example: Cookie Validation & Drive Import
+
+```go
+package main
+
+import (
+    "fmt"
+    "log"
+    "os"
+
+    "github.com/masudranaxpert/photos-reverse-engine/core"
+)
+
+func main() {
+    // 1. Read cookies from cookies.txt (Netscape or JSON)
+    rawCookies, err := os.ReadFile("cookies.txt")
+    if err != nil {
+        log.Fatalf("Failed to read cookies.txt: %v", err)
+    }
+
+    cookie, err := core.ParseCookies(string(rawCookies))
+    if err != nil {
+        log.Fatalf("Failed to parse cookies: %v", err)
+    }
+
+    // 2. Validate cookie status and account email
+    status, err := core.CheckCookieStatus(cookie)
+    if err != nil || !status.Valid {
+        log.Fatalf("Cookies invalid: %v", err)
+    }
+    fmt.Printf("Cookies valid! Logged-in Account: %s\n", status.Account)
+
+    // 3. Initialize Web Client
+    webClient, err := core.NewWebClient(cookie)
+    if err != nil {
+        log.Fatalf("Failed to initialize web client: %v", err)
+    }
+
+    // 4. Import Google Drive file directly into Google Photos
+    driveFileID := "1A2B3C4D5E6F7G8H9I0J"
+    result, err := webClient.ImportFromDrive(driveFileID, "video/*", true)
+    if err != nil {
+        log.Fatalf("Drive import failed: %v", err)
+    }
+
+    fmt.Printf("Imported MediaKey: %s\n", result.MediaKey)
+    fmt.Printf("Direct Download URL: %s\n", result.DownloadURL)
+}
+```
+
+---
+
 ## Data Structures
 
 ### `DownloadInfo`
@@ -166,13 +298,35 @@ type DownloadInfo struct {
 }
 ```
 
+### `CookieStatus`
+
+```go
+type CookieStatus struct {
+    Valid   bool   `json:"valid"`
+    Account string `json:"account,omitempty"`
+    Message string `json:"message,omitempty"`
+}
+```
+
+### `DriveImportResult`
+
+```go
+type DriveImportResult struct {
+    DriveFileID string `json:"drive_file_id"`
+    MediaKey    string `json:"media_key"`
+    DedupKey    string `json:"dedup_key"`
+    DownloadURL string `json:"download_url,omitempty"`
+}
+```
+
 ### `PublicShareLink`
 
 ```go
 type PublicShareLink struct {
-    ShareURL string `json:"share_url"`
-    MediaKey string `json:"media_key"`
-    AuthKey  string `json:"auth_key"`
+    ShareURL    string   `json:"share_url"`
+    EnvelopeKey string   `json:"envelope_key"`
+    AuthKey     string   `json:"auth_key"`
+    MediaKeys   []string `json:"media_keys"`
 }
 ```
 
@@ -180,10 +334,9 @@ type PublicShareLink struct {
 
 ```go
 type ShareInfo struct {
-    Title     string   `json:"title"`
-    ShareURL  string   `json:"share_url"`
-    AuthKey   string   `json:"auth_key"`
-    MediaKeys []string `json:"media_keys"`
+    AlbumName     string   `json:"album_name"`
+    AlbumMediaKey string   `json:"album_media_key"`
+    MediaKeys     []string `json:"media_keys"`
 }
 ```
 
@@ -191,9 +344,9 @@ type ShareInfo struct {
 
 ```go
 type SaveResult struct {
-    Status  int      `json:"status"`
-    Success bool     `json:"success"`
-    NewKeys []string `json:"new_keys"`
+    OriginalKeys []string `json:"original_keys"`
+    NewKeys      []string `json:"new_keys"`
+    Status       int      `json:"status"`
 }
 ```
 
@@ -202,9 +355,7 @@ type SaveResult struct {
 ```go
 type ExistResult struct {
     Exists   bool   `json:"exists"`
-    Sha1Hex  string `json:"sha1_hex"`
-    MediaKey string `json:"media_key"`
-    DedupKey string `json:"dedup_key"`
+    MediaKey string `json:"media_key,omitempty"`
 }
 ```
 
@@ -215,3 +366,5 @@ type ExistResult struct {
 * **Goroutine Safety**: All client operations and token refreshes are protected by `sync.RWMutex`.
 * **Context Cancellation**: Full support for `context.WithTimeout` and `context.WithCancel`.
 * **Zero Allocation Protobuf**: Native wire-level encoding avoiding heavy reflection.
+* **Zero External Dependencies**: Pure standard library Go implementation.
+

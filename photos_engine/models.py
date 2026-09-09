@@ -50,3 +50,21 @@ class PublicShareLink:
     envelope_key: str
     auth_key: str
     media_keys: List[str] = field(default_factory=list)
+
+
+@dataclass
+class CookieStatus:
+    valid: bool
+    session_id: str = "default"
+    account: Optional[str] = None
+    message: str = ""
+
+
+@dataclass
+class DriveImportResult:
+    drive_file_id: str
+    media_key: str
+    dedup_key: str
+    download_url: Optional[str] = None
+    filename: str = ""
+

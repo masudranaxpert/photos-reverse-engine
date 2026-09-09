@@ -7,9 +7,20 @@ Provides direct in-process bindings to the native Go core library with TLS-finge
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
 
-from .client import GPMCClient, PhotosEngineClient
-from .models import DownloadInfo, ExistResult, PublicShareLink, SaveResult, ScrapedShare, ShareInfo
+from .client import GPMCClient, NativeWebClient, PhotosEngineClient
+from .cookies import BaseCookieStore, DatabaseCookieStore, FileCookieStore, SessionManager
+from .models import (
+    CookieStatus,
+    DownloadInfo,
+    DriveImportResult,
+    ExistResult,
+    PublicShareLink,
+    SaveResult,
+    ScrapedShare,
+    ShareInfo,
+)
 from .scraper import scrape_share_url
+from .web_client import GooglePhotosWebClient
 
 # Standard alias matching httpcloak style (Client)
 Client = PhotosEngineClient
@@ -60,6 +71,12 @@ __all__ = [
     "Client",
     "PhotosEngineClient",
     "GPMCClient",
+    "NativeWebClient",
+    "GooglePhotosWebClient",
+    "FileCookieStore",
+    "DatabaseCookieStore",
+    "BaseCookieStore",
+    "SessionManager",
     "get_token",
     "get_download_url",
     "create_share_link",
@@ -73,4 +90,6 @@ __all__ = [
     "ExistResult",
     "ScrapedShare",
     "PublicShareLink",
+    "CookieStatus",
+    "DriveImportResult",
 ]

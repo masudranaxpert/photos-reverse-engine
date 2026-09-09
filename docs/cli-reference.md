@@ -119,3 +119,46 @@ In Library   : YES
 Media Key    : AF1QipP_x...
 Dedup Key    : cRDtpNC...
 ```
+
+---
+
+### `cookies-check`
+Validates authentication cookies from a `cookies.txt` file against `photos.google.com` and retrieves the logged-in Google account email.
+
+```bash
+# Verify cookies from default cookies.txt
+photos-engine cookies-check
+
+# Specify custom cookies file path
+photos-engine cookies-check --cookies-file /path/to/cookies.txt --json
+```
+
+**Example Output**:
+```text
+Session ID : default
+Valid      : YES
+Account    : user@gmail.com
+Message    : Cookies are valid (Account: user@gmail.com).
+```
+
+---
+
+### `drive-import`
+Imports a file from Google Drive directly into Google Photos via internal web RPCs, automatically outputs the direct download URL, and optionally moves it to trash upon completion.
+
+```bash
+# Import Google Drive file ID
+photos-engine drive-import 1A2B3C4D5E6F7G8H9I0J
+
+# Import and auto-cleanup from Photos trash
+photos-engine drive-import 1A2B3C4D5E6F7G8H9I0J --cleanup --json
+```
+
+**Example Output**:
+```text
+Drive File ID : 1A2B3C4D5E6F7G8H9I0J
+Media Key     : AF1QipM7Z...
+Dedup Key     : qUqP5cyx...
+Download URL  : https://video-downloads.googleusercontent.com/...
+```
+

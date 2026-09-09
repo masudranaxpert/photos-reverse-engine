@@ -12,11 +12,14 @@ from typing import List
 
 from photos_engine import (
     Client,
-    get_token,
+    DatabaseCookieStore,
+    FileCookieStore,
+    GooglePhotosWebClient,
     create_share_link,
-    get_download_url,
-    import_share_url,
     delete_by_media_key,
+    get_download_url,
+    get_token,
+    import_share_url,
     is_file_in_library,
 )
 
@@ -139,6 +142,55 @@ def _cmd_check(args):
             print(f"Dedup Key    : {result.dedup_key}")
 
 
+def _cmd_cookies_check(args):
+    """Verify stored cookies validity and retrieve logged-in account email."""
+    client = GooglePhotosWebClient(cookies_file=args.cookies_file)
+    try:
+        status = client.check_status(session_id=args.session)
+        if args.json:
+            print(json.dumps({
+                "valid": status.valid,
+                "session_id": status.session_id,
+                "account": status.account,
+                "message": status.message,
+            }, indent=2))
+        else:
+            print(f"Session ID : {status.session_id}")
+            print(f"Valid      : {'YES' if status.valid else 'NO'}")
+            print(f"Account    : {status.account or 'N/A'}")
+            print(f"Message    : {status.message}")
+        if not status.valid:
+            sys.exit(1)
+    finally:
+        client.close()
+
+
+def _cmd_drive_import(args):
+    """Import a Google Drive file into Google Photos and fetch download URL."""
+    client = GooglePhotosWebClient(cookies_file=args.cookies_file)
+    try:
+        print(f"Importing Drive file ID: {args.drive_file_id} ...")
+        res = client.import_from_drive(
+            drive_file_id=args.drive_file_id,
+            session_id=args.session,
+            cleanup=args.cleanup,
+        )
+        if args.json:
+            print(json.dumps({
+                "drive_file_id": res.drive_file_id,
+                "media_key": res.media_key,
+                "dedup_key": res.dedup_key,
+                "download_url": res.download_url,
+            }, indent=2))
+        else:
+            print(f"Drive File ID : {res.drive_file_id}")
+            print(f"Media Key     : {res.media_key}")
+            print(f"Dedup Key     : {res.dedup_key}")
+            print(f"Download URL  : {res.download_url or 'N/A'}")
+    finally:
+        client.close()
+
+
 def main():
     """Main CLI entry point."""
     common_parser = argparse.ArgumentParser(add_help=False)
@@ -186,6 +238,18 @@ def main():
     p_chk = subparsers.add_parser("check", help="Check if a local file exists in account by SHA-1 hash", parents=[common_parser])
     p_chk.add_argument("file_path", help="Local file path to check")
 
+    # Command: cookies-check
+    p_cc = subparsers.add_parser("cookies-check", help="Verify cookies validity and account email", parents=[common_parser])
+    p_cc.add_argument("--cookies-file", "-c", default="cookies.txt", help="Path to cookies.txt (Netscape or JSON)")
+    p_cc.add_argument("--session", "-s", default="default", help="Session ID (default: 'default')")
+
+    # Command: drive-import
+    p_di = subparsers.add_parser("drive-import", help="Import Drive file to Photos via cookies", parents=[common_parser])
+    p_di.add_argument("drive_file_id", help="Google Drive File ID to import")
+    p_di.add_argument("--cookies-file", "-c", default="cookies.txt", help="Path to cookies.txt")
+    p_di.add_argument("--session", "-s", default="default", help="Session ID (default: 'default')")
+    p_di.add_argument("--cleanup", action="store_true", help="Move to trash and permanently delete after obtaining download URL")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -199,6 +263,8 @@ def main():
         "import": _cmd_import,
         "delete": _cmd_delete,
         "check": _cmd_check,
+        "cookies-check": _cmd_cookies_check,
+        "drive-import": _cmd_drive_import,
     }
 
     try:

@@ -38,3 +38,19 @@ type PublicShareLink struct {
 	AuthKey     string   `json:"auth_key"`
 	MediaKeys   []string `json:"media_keys"`
 }
+
+// CookieStatus represents the validation state of Google cookies.
+type CookieStatus struct {
+	Valid   bool   `json:"valid"`
+	Account string `json:"account,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// DriveImportResult represents the result of importing a Google Drive file to Google Photos.
+type DriveImportResult struct {
+	DriveFileID string `json:"drive_file_id"`
+	MediaKey    string `json:"media_key"`
+	DedupKey    string `json:"dedup_key"`
+	DownloadURL string `json:"download_url,omitempty"`
+}
+

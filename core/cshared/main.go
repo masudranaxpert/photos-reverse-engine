@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -17,10 +18,28 @@ import (
 )
 
 var (
-	clientsLock sync.RWMutex
-	clientsMap  = make(map[uint64]*pe.Client)
-	nextHandle  uint64
+	clientsLock    sync.RWMutex
+	clientsMap     = make(map[uint64]*pe.Client)
+	nextHandle     uint64
+
+	webClientsLock sync.RWMutex
+	webClientsMap  = make(map[uint64]*pe.WebClient)
+	nextWebHandle  uint64
 )
+
+func registerWebClient(c *pe.WebClient) uint64 {
+	h := atomic.AddUint64(&nextWebHandle, 1)
+	webClientsLock.Lock()
+	webClientsMap[h] = c
+	webClientsLock.Unlock()
+	return h
+}
+
+func getWebClient(handle uint64) *pe.WebClient {
+	webClientsLock.RLock()
+	defer webClientsLock.RUnlock()
+	return webClientsMap[handle]
+}
 
 func registerClient(c *pe.Client) uint64 {
 	h := atomic.AddUint64(&nextHandle, 1)
@@ -181,6 +200,72 @@ func GPMC_FindMediaByHash(handle C.ulonglong, cSha1Hex *C.char) *C.char {
 
 	res, err := client.FindMediaByHash(context.Background(), sha1Bytes)
 	return jsonResponse(res, err)
+}
+
+//export GPWC_NewClient
+func GPWC_NewClient(cCookieData *C.char) C.ulonglong {
+	raw := C.GoString(cCookieData)
+	cookie, err := pe.ParseCookies(raw)
+	if err != nil {
+		return 0
+	}
+	client, err := pe.NewWebClient(cookie)
+	if err != nil {
+		return 0
+	}
+	return C.ulonglong(registerWebClient(client))
+}
+
+//export GPWC_CloseClient
+func GPWC_CloseClient(handle C.ulonglong) {
+	webClientsLock.Lock()
+	delete(webClientsMap, uint64(handle))
+	webClientsLock.Unlock()
+}
+
+//export GPWC_CheckStatus
+func GPWC_CheckStatus(cCookieData *C.char) *C.char {
+	raw := C.GoString(cCookieData)
+	cookie, err := pe.ParseCookies(raw)
+	if err != nil {
+		return jsonResponse(nil, err)
+	}
+	status, err := pe.CheckCookieStatus(cookie)
+	return jsonResponse(status, err)
+}
+
+//export GPWC_GetDownloadURL
+func GPWC_GetDownloadURL(handle C.ulonglong, cMediaKey *C.char) *C.char {
+	client := getWebClient(uint64(handle))
+	if client == nil {
+		return jsonResponse(nil, errors.New("client handle not found"))
+	}
+	mediaKey := C.GoString(cMediaKey)
+	info, err := client.GetDownloadURL(mediaKey)
+	return jsonResponse(info, err)
+}
+
+//export GPWC_ImportFromDrive
+func GPWC_ImportFromDrive(handle C.ulonglong, cDriveID *C.char, cMimeType *C.char, cleanup C.int) *C.char {
+	client := getWebClient(uint64(handle))
+	if client == nil {
+		return jsonResponse(nil, errors.New("client handle not found"))
+	}
+	driveID := C.GoString(cDriveID)
+	mimeType := C.GoString(cMimeType)
+	result, err := client.ImportFromDrive(driveID, mimeType, cleanup != 0)
+	return jsonResponse(result, err)
+}
+
+//export GPWC_CreateShareLink
+func GPWC_CreateShareLink(handle C.ulonglong, cMediaKey *C.char) *C.char {
+	client := getWebClient(uint64(handle))
+	if client == nil {
+		return jsonResponse(nil, errors.New("client handle not found"))
+	}
+	mediaKey := C.GoString(cMediaKey)
+	link, err := client.CreateShareLink(mediaKey)
+	return jsonResponse(link, err)
 }
 
 //export GPMC_FreeString

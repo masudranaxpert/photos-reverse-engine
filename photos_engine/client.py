@@ -9,7 +9,15 @@ import platform
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from .models import DownloadInfo, ExistResult, PublicShareLink, SaveResult, ShareInfo
+from .models import (
+    CookieStatus,
+    DownloadInfo,
+    DriveImportResult,
+    ExistResult,
+    PublicShareLink,
+    SaveResult,
+    ShareInfo,
+)
 from .scraper import scrape_share_url
 
 
@@ -289,3 +297,155 @@ class PhotosEngineClient:
 
 # Backwards-compatible alias
 GPMCClient = PhotosEngineClient
+
+
+class NativeWebClient:
+    """
+    Native Google Photos Web Client powered directly by the compiled Go core DLL.
+    Provides direct access to Go's GPWC implementation for cookies, Drive import, and download URLs.
+    """
+
+    def __init__(self, cookies: str, dll_path: Optional[str] = None):
+        self.cookies = (cookies or "").strip()
+        if not self.cookies:
+            raise ValueError("Cookies cannot be empty")
+
+        self.dll_path = dll_path or _get_lib_path()
+        self._lib = ctypes.CDLL(self.dll_path)
+        self._setup_bindings()
+
+        handle = self._lib.GPWC_NewClient(self.cookies.encode("utf-8"))
+        if handle == 0:
+            raise RuntimeError("Failed to initialize Go GPWC Client (invalid cookies or network failure)")
+        self._handle = handle
+
+    def _setup_bindings(self):
+        c_ull = ctypes.c_ulonglong
+        c_char_p = ctypes.c_char_p
+        c_void_p = ctypes.c_void_p
+
+        self._lib.GPWC_NewClient.argtypes = [c_char_p]
+        self._lib.GPWC_NewClient.restype = c_ull
+
+        self._lib.GPWC_CloseClient.argtypes = [c_ull]
+        self._lib.GPWC_CloseClient.restype = None
+
+        self._lib.GPWC_CheckStatus.argtypes = [c_char_p]
+        self._lib.GPWC_CheckStatus.restype = c_void_p
+
+        self._lib.GPWC_GetDownloadURL.argtypes = [c_ull, c_char_p]
+        self._lib.GPWC_GetDownloadURL.restype = c_void_p
+
+        self._lib.GPWC_ImportFromDrive.argtypes = [c_ull, c_char_p, c_char_p, ctypes.c_int]
+        self._lib.GPWC_ImportFromDrive.restype = c_void_p
+
+        self._lib.GPWC_CreateShareLink.argtypes = [c_ull, c_char_p]
+        self._lib.GPWC_CreateShareLink.restype = c_void_p
+
+        self._lib.GPMC_FreeString.argtypes = [c_void_p]
+        self._lib.GPMC_FreeString.restype = None
+
+    def _call(self, func, *args) -> Any:
+        raw_ptr = func(self._handle, *args)
+        if not raw_ptr:
+            raise RuntimeError(f"Go function {func.__name__} returned null pointer")
+
+        try:
+            json_str = ctypes.string_at(raw_ptr).decode("utf-8")
+        finally:
+            self._lib.GPMC_FreeString(raw_ptr)
+
+        result = json.loads(json_str)
+        if not result.get("success", False):
+            err = result.get("error", "Unknown error in Go GPWC core")
+            raise RuntimeError(f"{func.__name__} failed: {err}")
+
+        return result.get("data")
+
+    @classmethod
+    def check_status(cls, cookies: str, dll_path: Optional[str] = None) -> CookieStatus:
+        """Perform a quick cookie verification using the Go core without keeping a persistent client."""
+        lib_path = dll_path or _get_lib_path()
+        lib = ctypes.CDLL(lib_path)
+        lib.GPWC_CheckStatus.argtypes = [ctypes.c_char_p]
+        lib.GPWC_CheckStatus.restype = ctypes.c_void_p
+        lib.GPMC_FreeString.argtypes = [ctypes.c_void_p]
+        lib.GPMC_FreeString.restype = None
+
+        raw_ptr = lib.GPWC_CheckStatus(cookies.encode("utf-8"))
+        if not raw_ptr:
+            return CookieStatus(valid=False, message="Null response from Go core")
+
+        try:
+            json_str = ctypes.string_at(raw_ptr).decode("utf-8")
+        finally:
+            lib.GPMC_FreeString(raw_ptr)
+
+        res = json.loads(json_str)
+        if not res.get("success", False):
+            return CookieStatus(valid=False, message=res.get("error", "Unknown error"))
+
+        data = res.get("data", {})
+        return CookieStatus(
+            valid=data.get("valid", False),
+            account=data.get("account"),
+            message=data.get("message", ""),
+        )
+
+    def get_download_url(self, media_key: str) -> DownloadInfo:
+        """Retrieve direct download URL for a media key using Go core VrseUb RPC."""
+        data = self._call(self._lib.GPWC_GetDownloadURL, media_key.encode("utf-8"))
+        return DownloadInfo(
+            media_key=data.get("media_key", media_key),
+            download_url=data.get("download_url", ""),
+            dedup_key=data.get("dedup_key", ""),
+        )
+
+    def import_from_drive(
+        self,
+        drive_file_id: str,
+        mime_type: str = "video/*",
+        cleanup: bool = False,
+    ) -> DriveImportResult:
+        """Import Google Drive file to Photos via Go core SusGud RPC."""
+        data = self._call(
+            self._lib.GPWC_ImportFromDrive,
+            drive_file_id.encode("utf-8"),
+            mime_type.encode("utf-8"),
+            1 if cleanup else 0,
+        )
+        return DriveImportResult(
+            drive_file_id=data.get("drive_file_id", drive_file_id),
+            media_key=data.get("media_key", ""),
+            dedup_key=data.get("dedup_key", ""),
+            download_url=data.get("download_url"),
+        )
+
+    def create_share_link(self, media_key: str) -> PublicShareLink:
+        """Create public photos.app.goo.gl link via Go core SFKp8c RPC."""
+        data = self._call(self._lib.GPWC_CreateShareLink, media_key.encode("utf-8"))
+        return PublicShareLink(
+            share_url=data.get("share_url", ""),
+            envelope_key=data.get("envelope_key", ""),
+            auth_key=data.get("auth_key", ""),
+            media_keys=[media_key],
+        )
+
+    def close(self):
+        """Release Go client handle."""
+        if hasattr(self, "_handle") and self._handle and hasattr(self, "_lib"):
+            try:
+                self._lib.GPWC_CloseClient(self._handle)
+                self._handle = 0
+            except Exception:
+                pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def __del__(self):
+        self.close()
+
