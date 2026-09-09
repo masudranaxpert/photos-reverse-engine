@@ -345,9 +345,17 @@ func (c *Client) ImportSharedMedia(ctx context.Context, mediaKeys []string, auth
 			}
 		}
 
-		// Field 3: status code (2 = success)
+		// Field 3: status code (2 = success, 1 = processing / not ready)
 		if root.FieldNum == 3 {
 			result.Status = int(root.VarintValue)
+			switch result.Status {
+			case 2:
+				result.StatusMessage = "Successfully imported into library"
+			case 1:
+				result.StatusMessage = "Media is still processing / transcoding on Google Photos servers. Not ready for import yet."
+			default:
+				result.StatusMessage = fmt.Sprintf("Import completed with status %d", result.Status)
+			}
 		}
 	}
 

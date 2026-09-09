@@ -20,9 +20,10 @@ type ShareInfo struct {
 
 // SaveResult contains the outcome of an import/save operation.
 type SaveResult struct {
-	OriginalKeys []string `json:"original_keys"`
-	NewKeys      []string `json:"new_keys"`
-	Status       int      `json:"status"`
+	OriginalKeys  []string `json:"original_keys"`
+	NewKeys       []string `json:"new_keys"`
+	Status        int      `json:"status"`
+	StatusMessage string   `json:"status_message,omitempty"`
 }
 
 // ExistResult contains information about whether a media item already exists.

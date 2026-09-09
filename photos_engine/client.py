@@ -236,10 +236,21 @@ class PhotosEngineClient:
             auth_key.encode("utf-8"),
             album_key.encode("utf-8"),
         )
+        status = data.get("status", 0)
+        status_msg = data.get("status_message") or ""
+        if not status_msg:
+            if status == 2:
+                status_msg = "Successfully imported into library"
+            elif status == 1:
+                status_msg = "Media is still processing on Google Photos servers. Not ready for import yet."
+            else:
+                status_msg = f"Import completed with status {status}"
+
         return SaveResult(
-            original_keys=data.get("original_keys", media_keys),
-            new_keys=data.get("new_keys", []),
-            status=data.get("status", 0),
+            original_keys=data.get("original_keys") or media_keys,
+            new_keys=data.get("new_keys") or [],
+            status=status,
+            status_message=status_msg,
         )
 
     def find_by_hash(self, sha1_hex: str) -> ExistResult:
@@ -288,7 +299,10 @@ class PhotosEngineClient:
         )
 
         return {
-            "success": True,
+            "success": import_result.status == 2,
+            "status": import_result.status,
+            "status_message": import_result.status_message,
+            "is_processing": import_result.is_processing,
             "scraped": scraped,
             "media_count": len(scraped.media_keys),
             "import_result": import_result,

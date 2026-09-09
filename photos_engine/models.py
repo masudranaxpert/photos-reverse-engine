@@ -28,6 +28,17 @@ class SaveResult:
     original_keys: List[str] = field(default_factory=list)
     new_keys: List[str] = field(default_factory=list)
     status: int = 0
+    status_message: str = ""
+
+    @property
+    def is_success(self) -> bool:
+        """True if successfully saved into library with new keys assigned."""
+        return self.status == 2 and len(self.new_keys) > 0
+
+    @property
+    def is_processing(self) -> bool:
+        """True if media is still being transcoded/processed on Google Photos servers."""
+        return self.status == 1
 
 
 @dataclass
