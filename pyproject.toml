@@ -51,7 +51,7 @@ docs = [
 photos-engine = "photos_engine.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/masudranaxpert/photos-reverse-engine"
+Homepage = "https://masudranaxpert.github.io/photos-reverse-engine/"
 Repository = "https://github.com/masudranaxpert/photos-reverse-engine"
 Issues = "https://github.com/masudranaxpert/photos-reverse-engine/issues"
 Documentation = "https://masudranaxpert.github.io/photos-reverse-engine/"
