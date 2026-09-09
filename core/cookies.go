@@ -96,6 +96,9 @@ func ParseCookies(raw string) (Cookie, error) {
 		}
 
 		parts := strings.Split(line, "\t")
+		if len(parts) < 7 {
+			parts = strings.Fields(line)
+		}
 		if len(parts) >= 7 {
 			name := strings.TrimSpace(parts[5])
 			val := strings.TrimSpace(parts[6])

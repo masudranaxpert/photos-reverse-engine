@@ -239,6 +239,10 @@ class GooglePhotosWebClient:
         download_url = _safe_get(data, 1) or ""
         if not download_url:
             download_url = _safe_get(data, 7) or ""
+        if not download_url and not dedup_key:
+            if isinstance(data, list) and data:
+                dedup_key = _safe_get(data, 0, 0, 3) or ""
+                download_url = _safe_get(data, 0, 1) or _safe_get(data, 0, 7) or ""
 
         self.session_manager.debounced_sync(session_id, session)
         return DownloadInfo(
@@ -291,16 +295,17 @@ class GooglePhotosWebClient:
             raise RuntimeError("Failed to parse SusGud import response from Google Photos")
 
         # Response format: [[driveKey, [mediaKey, ..., dedupKey]]]
-        items = _safe_get(data, 0)
-        if not isinstance(items, list) or not items:
-            raise RuntimeError(f"No imported media items returned in response: {data}")
-
-        first_item = items[0]
-        media_key = _safe_get(first_item, 1, 0) or ""
-        dedup_key = _safe_get(first_item, 1, 3) or ""
+        media_key = _safe_get(data, 0, 0, 1, 0) or _safe_get(data, 0, 1, 0) or ""
+        dedup_key = _safe_get(data, 0, 0, 1, 3) or _safe_get(data, 0, 1, 3) or ""
+        if not media_key:
+            items = _safe_get(data, 0)
+            if isinstance(items, list) and items:
+                first_item = items[0]
+                media_key = _safe_get(first_item, 1, 0) or ""
+                dedup_key = _safe_get(first_item, 1, 3) or ""
 
         if not media_key:
-            raise RuntimeError(f"media_key missing in import response: {first_item}")
+            raise RuntimeError(f"media_key missing in import response: {data}")
 
         # Automatically fetch download URL using VrseUb
         download_url: Optional[str] = None

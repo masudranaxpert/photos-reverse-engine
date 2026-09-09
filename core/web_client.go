@@ -212,13 +212,17 @@ func (c *WebClient) ImportFromDrive(driveFileID string, mimeType string, cleanup
 		return nil, fmt.Errorf("import from drive request failed: %w", err)
 	}
 
-	itemsArr := safeGetIndex(respData, 0)
-	if itemsArr == nil {
-		return nil, fmt.Errorf("empty items returned from SusGud: %v", respData)
+	mediaKey, _ := safeGetIndex(respData, 0, 0, 1, 0).(string)
+	dedupKey, _ := safeGetIndex(respData, 0, 0, 1, 3).(string)
+	if mediaKey == "" {
+		mediaKey, _ = safeGetIndex(respData, 0, 1, 0).(string)
+		dedupKey, _ = safeGetIndex(respData, 0, 1, 3).(string)
 	}
-
-	mediaKey, _ := safeGetIndex(itemsArr, 0, 1, 0).(string)
-	dedupKey, _ := safeGetIndex(itemsArr, 0, 1, 3).(string)
+	if mediaKey == "" {
+		itemsArr := safeGetIndex(respData, 0)
+		mediaKey, _ = safeGetIndex(itemsArr, 0, 1, 0).(string)
+		dedupKey, _ = safeGetIndex(itemsArr, 0, 1, 3).(string)
+	}
 
 	if mediaKey == "" {
 		return nil, fmt.Errorf("mediaKey not found in SusGud response: %v", respData)
@@ -259,6 +263,15 @@ func (c *WebClient) GetDownloadURL(mediaKey string) (*DownloadInfo, error) {
 	downloadURL, _ := safeGetIndex(respData, 1).(string)
 	if downloadURL == "" {
 		downloadURL, _ = safeGetIndex(respData, 7).(string)
+	}
+	if downloadURL == "" && dedupKey == "" {
+		if arr, ok := respData.([]interface{}); ok && len(arr) > 0 {
+			dedupKey, _ = safeGetIndex(arr, 0, 0, 3).(string)
+			downloadURL, _ = safeGetIndex(arr, 0, 1).(string)
+			if downloadURL == "" {
+				downloadURL, _ = safeGetIndex(arr, 0, 7).(string)
+			}
+		}
 	}
 
 	return &DownloadInfo{
