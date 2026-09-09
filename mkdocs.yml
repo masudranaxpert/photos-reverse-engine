@@ -10,57 +10,77 @@ edit_uri: edit/main/docs/
 theme:
   name: material
   language: en
+  icon:
+    logo: material/image-multiple-outline
+  font:
+    text: Inter
+    code: JetBrains Mono
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
+      primary: white
       accent: indigo
       toggle:
-        icon: material/brightness-7
+        icon: material/weather-sunny
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
+      primary: black
       accent: indigo
       toggle:
-        icon: material/brightness-4
+        icon: material/weather-night
         name: Switch to light mode
   features:
     - navigation.tabs
+    - navigation.tabs.sticky
     - navigation.sections
     - navigation.top
     - navigation.tracking
+    - navigation.indexes
+    - navigation.path
+    - toc.follow
     - search.suggest
     - search.highlight
+    - search.share
     - content.code.copy
     - content.action.edit
+    - content.action.view
+
+extra_css:
+  - stylesheets/extra.css
 
 markdown_extensions:
+  - toc:
+      permalink: "#"
+      title: "On this page"
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.highlight:
       anchor_linenums: true
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  - pymdownx.superfences:
-      custom_fences:
-        - name: mermaid
-          class: mermaid
-          format: !!python/name:pymdownx.superfences.fence_code_format
   - pymdownx.tabbed:
       alternate_style: true
-  - pymdownx.details
-  - admonition
   - tables
   - attr_list
   - md_in_html
 
 nav:
-  - Overview: index.md
-  - Quickstart: quickstart.md
-  - Python API: api-reference.md
-  - Go API: go-api-reference.md
-  - CLI Reference: cli-reference.md
-  - Reverse Engineering: reverse-engineering.md
-  - Architecture: architecture.md
-  - Contributing: contributing.md
+  - Home: index.md
+  - Getting Started:
+      - Quickstart: quickstart.md
+      - Development Setup: contributing.md
+  - API Reference:
+      - Python API: api-reference.md
+      - Go Core API: go-api-reference.md
+      - CLI Manual: cli-reference.md
+  - Architecture:
+      - C-ABI & System Design: architecture.md
+      - Mobile Reverse Engineering: reverse-engineering.md

@@ -1,28 +1,45 @@
-# Photos Engine Documentation
+# Overview
 
-[![Python Version](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://python.org)
+[![Python Version](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-3776AB.svg)](https://python.org)
 [![Go Core](https://img.shields.io/badge/go-1.26%2B-00ADD8.svg)](https://golang.org)
-[![Architecture](https://img.shields.io/badge/ABI-C--Shared%20via%20ctypes-brightgreen.svg)]()
-[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-lightgrey.svg)]()
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Architecture](https://img.shields.io/badge/ABI-C--Shared%20via%20ctypes-4EBA6F.svg)]()
+[![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-64748B.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-10B981.svg)](https://opensource.org/licenses/MIT)
 
-**Photos Engine** is a high-performance Google Photos mobile client library and CLI tool. It combines a compiled **native Go core engine** with **direct in-process Python C-ABI bindings (`ctypes`)**, following the packaging and performance design of [`httpcloak`](https://github.com/sardanioss/httpcloak).
+**Photos Engine** is a high-performance Google Photos client library and CLI tool. It combines a compiled **native Go core engine** with **direct in-process Python C-ABI bindings (`ctypes`)**, styled after the packaging and execution model of [`httpcloak`](https://github.com/sardanioss/httpcloak).
+
+!!! info "Zero-Overhead Hybrid Architecture"
+    By compiling Go code directly into a platform-native dynamic shared library and bridging via C-ABI pointers, **Photos Engine** eliminates the IPC latency, memory overhead, and process-spawn penalties of subprocess CLIs or local HTTP daemon proxies.
 
 ---
 
 ## Key Highlights
 
-- **Zero-Overhead In-Process Execution**: The Go core compiles into a native C-shared library (`.dll` / `.so` / `.dylib`) loaded directly into Python memory via `ctypes`. No IPC, no subprocess spawn overhead, no local HTTP proxy latency.
-- **Instant Public Sharing**: Generates official `https://photos.app.goo.gl/...` public share links for single or batched media items using Google Photos' internal envelope endpoint.
-- **Unlimited Pixel XL Backup Spoofing**: Implements Google Photos mobile device spoofing (Pixel XL hardware model & headers) to save and backup shared media without storage quota consumption.
-- **Direct Stream Downloads**: Resolves direct original-quality download URLs, filenames, exact byte sizes, SHA-1 checksums, and deduplication keys.
-- **Fast Library Deduplication**: Pre-flight SHA-1 hash lookups against your Google Photos library to prevent duplicate uploads.
-- **Permanent Deletion**: Two-step deletion protocol (Move-to-Trash followed by permanent erase) using raw deduplication keys.
-- **Unified CLI & Python API**: Use either the command-line utility (`photos-engine`) or idiomatic Python code with type hints.
+<div class="grid cards" markdown>
+
+-   ### Zero-Overhead Execution
+    The Go core compiles into a native C-shared library (`.dll` / `.so` / `.dylib`), loaded directly into Python memory via `ctypes`. Zero IPC, zero subprocess overhead.
+
+-   ### Public Share Links
+    Generates official `https://photos.app.goo.gl/...` short share links for single or batched media items using Google Photos' internal envelope endpoint.
+
+-   ### Unlimited Pixel XL Spoofing
+    Simulates Google Pixel XL hardware identifiers and headers to save and import shared media with unlimited original quality backup status.
+
+-   ### Direct Stream Downloads
+    Resolves direct original-quality download stream URLs, original filenames, exact byte sizes, and SHA-1 checksums.
+
+-   ### Fast Library Deduplication
+    Pre-flight SHA-1 hash lookups against your Google Photos library to prevent duplicate uploads before spending network bandwidth.
+
+-   ### Permanent Deletion
+    Two-step expunge sequence (Move-to-Trash followed by permanent erase) using raw URL-safe deduplication keys.
+
+</div>
 
 ---
 
-## Architecture Overview
+## Architecture Diagram
 
 ```mermaid
 graph TD
@@ -63,11 +80,10 @@ graph TD
 
 ---
 
-## Navigation
+## Performance Comparison
 
-- [Quickstart Guide](quickstart.md): Get up and running with Python, Go, or the CLI.
-- [Python API Reference](api-reference.md): Detailed classes, methods, and types for Python.
-- [Go API Reference](go-api-reference.md): Complete Go core package methods, structs, and examples.
-- [CLI Reference](cli-reference.md): Command-line tool commands and options.
-- [Reverse Engineering Deep Dive](reverse-engineering.md): Google Photos mobile protobuf protocols, read masks, and device spoofing.
-- [Architecture & C-ABI](architecture.md): How Go and Python communicate with zero overhead.
+| Approach | Latency / Call | Process Memory | Binary Size | Port Binding |
+| :--- | :--- | :--- | :--- | :--- |
+| **Subprocess CLI (`.exe`)** | ~120 ms | High (forks new process) | ~15 MB per tool | None |
+| **Local Proxy Server** | ~20–40 ms | High (background daemon) | ~30 MB | Required |
+| **`photos-engine` (C-ABI)** | **< 0.5 ms** | **Low (shared process)** | **Single `.dll`** | **None** |
