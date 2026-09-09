@@ -21,14 +21,14 @@ theme:
       primary: custom
       accent: indigo
       toggle:
-        icon: material/weather-sunny
+        icon: octicons/sun-24
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: custom
       accent: indigo
       toggle:
-        icon: material/weather-night
+        icon: octicons/moon-24
         name: Switch to light mode
   features:
     - navigation.instant
@@ -47,6 +47,9 @@ theme:
 
 extra_css:
   - stylesheets/extra.css
+
+extra_javascript:
+  - javascripts/extra.js
 
 markdown_extensions:
   - toc:
@@ -74,9 +77,9 @@ markdown_extensions:
 nav:
   - Overview: index.md
   - Quickstart: quickstart.md
-  - Python API Reference: api-reference.md
-  - Go Core API Reference: go-api-reference.md
+  - Python API: api-reference.md
+  - Go Core API: go-api-reference.md
   - CLI Manual: cli-reference.md
-  - Mobile Reverse Engineering: reverse-engineering.md
-  - Architecture & C-ABI: architecture.md
-  - Development & Contributing: contributing.md
+  - Reverse Engineering: reverse-engineering.md
+  - Architecture: architecture.md
+  - Contributing: contributing.md
