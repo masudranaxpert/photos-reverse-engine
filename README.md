@@ -15,7 +15,7 @@
 
 ---
 
-## ⚡ Highlights
+## Highlights
 
 - **Direct In-Process Execution**: The Go core engine is compiled into a native C-shared dynamic library (`lib/libphotos_engine-*.dll`), loaded into Python directly via `ctypes`. No subprocess overhead, no TCP proxies, no IPC latency.
 - **Public Share Link Creation**: Generates official `https://photos.app.goo.gl/...` short share links for single or multiple media items.
@@ -27,7 +27,7 @@
 
 ---
 
-## 🚀 Quickstart
+## Quickstart
 
 ### 1. Installation
 
@@ -141,7 +141,7 @@ func main() {
 
 ---
 
-## 💻 CLI Usage
+## CLI Usage
 
 `photos-engine` comes with a command-line interface:
 
@@ -168,7 +168,7 @@ photos-engine delete AF1QipM7Z...
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -196,13 +196,14 @@ photos-engine delete AF1QipM7Z...
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 Detailed documentation is available in the [`docs/`](docs/) directory:
 
 - [**Overview & Architecture**](docs/index.md)
 - [**Quickstart Guide**](docs/quickstart.md)
 - [**Python API Reference**](docs/api-reference.md)
+- [**Go API Reference**](docs/go-api-reference.md)
 - [**CLI Manual**](docs/cli-reference.md)
 - [**Reverse Engineering & Protobuf Specifications**](docs/reverse-engineering.md)
 - [**C-ABI & Low-Level Design**](docs/architecture.md)
@@ -210,7 +211,7 @@ Detailed documentation is available in the [`docs/`](docs/) directory:
 
 ---
 
-## 🛠️ Rebuilding the Native Engine
+## Rebuilding the Native Engine
 
 To recompile the Go core for your local platform:
 
@@ -222,6 +223,6 @@ The script automatically detects the local OS, architecture, and available C com
 
 ---
 
-## 📄 License
+## License
 
 Distributed under the [MIT License](LICENSE).

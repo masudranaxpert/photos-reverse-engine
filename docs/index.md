@@ -12,13 +12,13 @@
 
 ## Key Highlights
 
-- ⚡ **Zero-Overhead In-Process Execution**: The Go core compiles into a native C-shared library (`.dll` / `.so` / `.dylib`) loaded directly into Python memory via `ctypes`. No IPC, no subprocess spawn overhead, no local HTTP proxy latency.
-- 🔗 **Instant Public Sharing**: Generates official `https://photos.app.goo.gl/...` public share links for single or batched media items using Google Photos' internal envelope endpoint.
-- 📱 **Unlimited Pixel XL Backup Spoofing**: Implements Google Photos mobile device spoofing (Pixel XL hardware model & headers) to save and backup shared media without storage quota consumption.
-- 📥 **Direct Stream Downloads**: Resolves direct original-quality download URLs, filenames, exact byte sizes, SHA-1 checksums, and deduplication keys.
-- 🔍 **Fast Library Deduplication**: Pre-flight SHA-1 hash lookups against your Google Photos library to prevent duplicate uploads.
-- 🗑️ **Permanent Deletion**: Two-step deletion protocol (Move-to-Trash followed by permanent erase) using raw deduplication keys.
-- 🛠️ **Unified CLI & Python API**: Use either the command-line utility (`photos-engine`) or idiomatic Python code with type hints.
+- **Zero-Overhead In-Process Execution**: The Go core compiles into a native C-shared library (`.dll` / `.so` / `.dylib`) loaded directly into Python memory via `ctypes`. No IPC, no subprocess spawn overhead, no local HTTP proxy latency.
+- **Instant Public Sharing**: Generates official `https://photos.app.goo.gl/...` public share links for single or batched media items using Google Photos' internal envelope endpoint.
+- **Unlimited Pixel XL Backup Spoofing**: Implements Google Photos mobile device spoofing (Pixel XL hardware model & headers) to save and backup shared media without storage quota consumption.
+- **Direct Stream Downloads**: Resolves direct original-quality download URLs, filenames, exact byte sizes, SHA-1 checksums, and deduplication keys.
+- **Fast Library Deduplication**: Pre-flight SHA-1 hash lookups against your Google Photos library to prevent duplicate uploads.
+- **Permanent Deletion**: Two-step deletion protocol (Move-to-Trash followed by permanent erase) using raw deduplication keys.
+- **Unified CLI & Python API**: Use either the command-line utility (`photos-engine`) or idiomatic Python code with type hints.
 
 ---
 
