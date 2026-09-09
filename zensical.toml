@@ -35,11 +35,14 @@ features = [
   "navigation.indexes",
   "navigation.instant",
   "navigation.instant.prefetch",
+  "navigation.instant.progress",
   "navigation.path",
   "navigation.sections",
   "navigation.top",
   "navigation.tracking",
   "search.highlight",
+  "search.suggest",
+  "toc.follow",
 ]
 
 [project.theme.icon]

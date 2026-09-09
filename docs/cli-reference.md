@@ -1,3 +1,9 @@
+---
+title: CLI Manual
+description: Command-line reference manual for the photos-engine CLI utility
+icon: lucide/terminal
+---
+
 # CLI Reference
 
 The `photos-engine` command-line tool provides terminal access to all core operations.

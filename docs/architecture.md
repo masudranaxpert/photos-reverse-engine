@@ -1,3 +1,9 @@
+---
+title: Architecture
+description: Hybrid Go core and Python C-ABI architecture, in-process memory sharing, and cross-platform compilation
+icon: lucide/layers
+---
+
 # Architecture & C-ABI Design
 
 `photos_engine` utilizes a hybrid architecture modeled after [`httpcloak`](https://github.com/sardanioss/httpcloak): high-speed low-level networking and binary parsing in **Go**, combined with an intuitive developer-facing API in **Python**.

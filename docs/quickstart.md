@@ -1,3 +1,9 @@
+---
+title: Quickstart
+description: Get up and running with Photos Engine in minutes using Python, Go, or the CLI
+icon: lucide/zap
+---
+
 # Quickstart Guide
 
 Get up and running with **Photos Engine** in minutes using **Python**, **Go**, or the **CLI**.

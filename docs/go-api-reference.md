@@ -1,3 +1,9 @@
+---
+title: Go Core API
+description: Comprehensive Go API reference for the high-performance native engine core
+icon: lucide/cpu
+---
+
 # Go API Reference
 
 Comprehensive reference for using the native Go core engine (`github.com/masudranaxpert/photos-reverse-engine/core`).

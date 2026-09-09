@@ -1,3 +1,9 @@
+---
+title: Reverse Engineering
+description: Reverse-engineered wire protocol, endpoints, protobuf schemas, and device spoofing headers for Google Photos Mobile
+icon: lucide/shield-alert
+---
+
 # Google Photos Mobile API Reverse Engineering
 
 This document details the reverse-engineered wire protocol, endpoints, protobuf schemas, and device spoofing headers discovered during the analysis of official Google Photos Android releases.

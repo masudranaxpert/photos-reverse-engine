@@ -1,3 +1,9 @@
+---
+title: Contributing
+description: Guidelines for developing, compiling, testing, and contributing to photos_engine
+icon: lucide/git-pull-request
+---
+
 # Contributing & Development Guide
 
 Guidelines for developing, testing, and building `photos_engine`.

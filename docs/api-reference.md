@@ -1,3 +1,9 @@
+---
+title: Python API
+description: Comprehensive Python API reference for classes, methods, models, and FFI bindings in photos_engine
+icon: lucide/code-2
+---
+
 # Python API Reference
 
 Comprehensive reference for classes, methods, models, and top-level functions in the `photos_engine` package.
