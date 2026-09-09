@@ -21,7 +21,7 @@ pip install -e .
 To compile changes in the Go core (`core/`) into the native shared library:
 
 ### Prerequisites:
-- **Go**: 1.22+ installed.
+- **Go**: 1.26+ installed.
 - **C Compiler**:
   - **Windows**: `llvm-mingw` (`x86_64-w64-windows-gnu-gcc`) or `mingw-w64`.
   - **Linux**: `gcc` (`build-essential`).

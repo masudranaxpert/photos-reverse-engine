@@ -50,8 +50,8 @@ def build():
                 env["PATH"] = f"{p.parent};{env['PATH']}"
                 break
 
-    cmd = ["go", "build", "-buildmode=c-shared", "-o", str(out_path), "./cshared"]
-    res = subprocess.run(cmd, cwd=str(core_dir), env=env)
+    cmd = ["go", "build", "-buildmode=c-shared", "-ldflags=-s -w", "-o", str(out_path), "./core/cshared"]
+    res = subprocess.run(cmd, cwd=str(root_dir), env=env)
     if res.returncode != 0:
         raise RuntimeError(f"Failed to build Go core: exit code {res.returncode}")
 

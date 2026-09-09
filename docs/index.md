@@ -1,7 +1,7 @@
 # Photos Engine Documentation
 
 [![Python Version](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://python.org)
-[![Go Core](https://img.shields.io/badge/go-1.22%2B-00ADD8.svg)](https://golang.org)
+[![Go Core](https://img.shields.io/badge/go-1.26%2B-00ADD8.svg)](https://golang.org)
 [![Architecture](https://img.shields.io/badge/ABI-C--Shared%20via%20ctypes-brightgreen.svg)]()
 [![Platform](https://img.shields.io/badge/platform-windows%20%7C%20linux%20%7C%20macos-lightgrey.svg)]()
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
@@ -65,8 +65,9 @@ graph TD
 
 ## Navigation
 
-- [Quickstart Guide](quickstart.md): Get up and running in under 3 minutes.
-- [Python API Reference](api-reference.md): Detailed classes, methods, and types.
+- [Quickstart Guide](quickstart.md): Get up and running with Python, Go, or the CLI.
+- [Python API Reference](api-reference.md): Detailed classes, methods, and types for Python.
+- [Go API Reference](go-api-reference.md): Complete Go core package methods, structs, and examples.
 - [CLI Reference](cli-reference.md): Command-line tool commands and options.
 - [Reverse Engineering Deep Dive](reverse-engineering.md): Google Photos mobile protobuf protocols, read masks, and device spoofing.
 - [Architecture & C-ABI](architecture.md): How Go and Python communicate with zero overhead.

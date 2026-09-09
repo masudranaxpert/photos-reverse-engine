@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Google%20Photos-Client%20Engine-4285F4?style=for-the-badge&logo=google-photos&logoColor=white" alt="Google Photos">
-  <img src="https://img.shields.io/badge/Go%20Core-1.22+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go">
+  <img src="https://img.shields.io/badge/Go%20Core-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/Architecture-C--ABI%20via%20ctypes-4EBA6F?style=for-the-badge" alt="Architecture">
 </p>
@@ -73,6 +73,70 @@ print("Exists in library?", check.exists)
 # 6. Permanently Delete Media Item
 success = photos_engine.delete_by_media_key("AF1QipM...")
 print("Deleted:", success)
+```
+
+---
+
+### 4. Golang Usage
+
+Add the package to your Go project:
+
+```bash
+go get github.com/masudranaxpert/photos-reverse-engine
+```
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/masudranaxpert/photos-reverse-engine/core"
+)
+
+func main() {
+	ctx := context.Background()
+
+	// 1. Initialize client (reads AUTH_DATA from env if empty)
+	client, err := core.NewClient(os.Getenv("AUTH_DATA"))
+	if err != nil {
+		log.Fatalf("Client init failed: %v", err)
+	}
+
+	// 2. Active OAuth2 Bearer Token (auto-refreshing)
+	token, err := client.GetToken(ctx)
+	if err != nil {
+		log.Fatalf("Token fetch failed: %v", err)
+	}
+	fmt.Println("Bearer Token:", token[:25]+"...")
+
+	// 3. Generate Public Share Link (photos.app.goo.gl)
+	shareLink, err := client.CreateShareLink(ctx, []string{"MEDIA_KEY_1", "MEDIA_KEY_2"})
+	if err == nil {
+		fmt.Println("Share URL:", shareLink.ShareURL)
+	}
+
+	// 4. Direct Original Quality Download Stream
+	dlInfo, err := client.GetDownloadURL(ctx, "MEDIA_KEY_1")
+	if err == nil {
+		fmt.Printf("File: %s (Size: %d bytes)\n", dlInfo.Filename, dlInfo.FileSize)
+		fmt.Println("Download URL:", dlInfo.DownloadURL)
+	}
+
+	// 5. Import Shared Media with Pixel XL Spoofing
+	saveRes, err := client.ImportSharedMedia(ctx, []string{"MEDIA_KEY"}, "AUTH_KEY", "ALBUM_KEY")
+	if err == nil {
+		fmt.Println("Saved Keys:", saveRes.NewKeys)
+	}
+
+	// 6. Permanently Delete Media Item
+	if err := client.DeleteByMediaKey(ctx, "MEDIA_KEY_1"); err == nil {
+		fmt.Println("Item successfully deleted permanently!")
+	}
+}
 ```
 
 ---

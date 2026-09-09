@@ -1,4 +1,4 @@
-package gpmc
+package core
 
 // DownloadInfo contains direct download URLs and file metadata.
 type DownloadInfo struct {

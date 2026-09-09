@@ -1,4 +1,4 @@
-package gpmc
+package core
 
 import (
 	"compress/gzip"

@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	pe "photos_engine"
+	pe "github.com/masudranaxpert/photos-reverse-engine/core"
 )
 
 var (

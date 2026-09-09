@@ -37,8 +37,8 @@ classifiers = [
     "Operating System :: OS Independent"
 ]
 dependencies = [
-    "httpcloak>=1.7.0",
-    "selectolax>=0.4.0",
+    "httpcloak>=1.7.2",
+    "selectolax>=0.4.11",
 ]
 
 [project.scripts]
