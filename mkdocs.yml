@@ -18,14 +18,14 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: custom
+      primary: white
       accent: indigo
       toggle:
         icon: octicons/sun-24
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: custom
+      primary: slate
       accent: indigo
       toggle:
         icon: octicons/moon-24
@@ -44,12 +44,6 @@ theme:
     - content.code.copy
     - content.action.edit
     - content.action.view
-
-extra_css:
-  - stylesheets/extra.css
-
-extra_javascript:
-  - javascripts/extra.js
 
 markdown_extensions:
   - toc:
