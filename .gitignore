@@ -38,7 +38,8 @@ ENV/
 env.bak/
 venv.bak/
 
-# Testing & IDEs
+# Testing, Docs & IDEs
+site/
 .pytest_cache/
 .coverage
 htmlcov/

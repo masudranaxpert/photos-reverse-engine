@@ -41,6 +41,12 @@ dependencies = [
     "selectolax>=0.4.11",
 ]
 
+[project.optional-dependencies]
+docs = [
+    "mkdocs>=1.6.0",
+    "mkdocs-material>=9.5.0",
+]
+
 [project.scripts]
 photos-engine = "photos_engine.cli:main"
 
@@ -48,7 +54,7 @@ photos-engine = "photos_engine.cli:main"
 Homepage = "https://github.com/masudranaxpert/photos-reverse-engine"
 Repository = "https://github.com/masudranaxpert/photos-reverse-engine"
 Issues = "https://github.com/masudranaxpert/photos-reverse-engine/issues"
-Documentation = "https://github.com/masudranaxpert/photos-reverse-engine/tree/main/docs"
+Documentation = "https://masudranaxpert.github.io/photos-reverse-engine/"
 
 [tool.setuptools.packages.find]
 where = ["."]

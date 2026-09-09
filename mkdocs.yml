@@ -1,0 +1,66 @@
+site_name: Photos Engine
+site_description: High-performance Google Photos Client with native Go core engine and Python C-ABI bindings
+site_author: Masud Rana
+site_url: https://masudranaxpert.github.io/photos-reverse-engine/
+
+repo_name: masudranaxpert/photos-reverse-engine
+repo_url: https://github.com/masudranaxpert/photos-reverse-engine
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  language: en
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.tracking
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+  - admonition
+  - tables
+  - attr_list
+  - md_in_html
+
+nav:
+  - Overview: index.md
+  - Quickstart: quickstart.md
+  - Python API: api-reference.md
+  - Go API: go-api-reference.md
+  - CLI Reference: cli-reference.md
+  - Reverse Engineering: reverse-engineering.md
+  - Architecture: architecture.md
+  - Contributing: contributing.md

@@ -5,6 +5,7 @@
   <img src="https://img.shields.io/badge/Go%20Core-1.26+-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go">
   <img src="https://img.shields.io/badge/Python-3.9%2B-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/Architecture-C--ABI%20via%20ctypes-4EBA6F?style=for-the-badge" alt="Architecture">
+  <a href="https://masudranaxpert.github.io/photos-reverse-engine/"><img src="https://img.shields.io/badge/Docs-Online-blue?style=for-the-badge&logo=googledocs&logoColor=white" alt="Docs"></a>
 </p>
 
 <p align="center">
@@ -198,7 +199,9 @@ photos-engine delete AF1QipM7Z...
 
 ## Documentation
 
-Detailed documentation is available in the [`docs/`](docs/) directory:
+Online documentation is hosted at: **[https://masudranaxpert.github.io/photos-reverse-engine/](https://masudranaxpert.github.io/photos-reverse-engine/)**
+
+Source markdown files are available in the [`docs/`](docs/) directory:
 
 - [**Overview & Architecture**](docs/index.md)
 - [**Quickstart Guide**](docs/quickstart.md)
