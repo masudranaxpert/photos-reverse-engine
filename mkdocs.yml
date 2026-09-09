@@ -18,30 +18,29 @@ theme:
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: white
+      primary: custom
       accent: indigo
       toggle:
         icon: material/weather-sunny
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: black
+      primary: custom
       accent: indigo
       toggle:
         icon: material/weather-night
         name: Switch to light mode
   features:
-    - navigation.tabs
-    - navigation.tabs.sticky
+    - navigation.instant
+    - navigation.instant.prefetch
     - navigation.sections
+    - navigation.path
     - navigation.top
     - navigation.tracking
-    - navigation.indexes
-    - navigation.path
+    - navigation.footer
     - toc.follow
     - search.suggest
     - search.highlight
-    - search.share
     - content.code.copy
     - content.action.edit
     - content.action.view
@@ -73,14 +72,11 @@ markdown_extensions:
   - md_in_html
 
 nav:
-  - Home: index.md
-  - Getting Started:
-      - Quickstart: quickstart.md
-      - Development Setup: contributing.md
-  - API Reference:
-      - Python API: api-reference.md
-      - Go Core API: go-api-reference.md
-      - CLI Manual: cli-reference.md
-  - Architecture:
-      - C-ABI & System Design: architecture.md
-      - Mobile Reverse Engineering: reverse-engineering.md
+  - Overview: index.md
+  - Quickstart: quickstart.md
+  - Python API Reference: api-reference.md
+  - Go Core API Reference: go-api-reference.md
+  - CLI Manual: cli-reference.md
+  - Mobile Reverse Engineering: reverse-engineering.md
+  - Architecture & C-ABI: architecture.md
+  - Development & Contributing: contributing.md
