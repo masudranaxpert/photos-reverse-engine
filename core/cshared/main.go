@@ -264,6 +264,47 @@ func GPWC_NewClient(cCookieData *C.char) C.ulonglong {
 	return C.ulonglong(registerWebClient(client))
 }
 
+//export GPWC_CreateClientFromBlob
+func GPWC_CreateClientFromBlob(cBlobHex *C.char) *C.char {
+	blobHex := C.GoString(cBlobHex)
+	blob, err := hex.DecodeString(blobHex)
+	if err != nil {
+		return jsonResponse(nil, err)
+	}
+	client, err := pe.NewWebClientFromBlob(blob)
+	if err != nil {
+		return jsonResponse(nil, err)
+	}
+	h := registerWebClient(client)
+	return jsonResponse(map[string]interface{}{"handle": h}, nil)
+}
+
+//export GPWC_ExportSessionBlob
+func GPWC_ExportSessionBlob(handle C.ulonglong) *C.char {
+	client := getWebClient(uint64(handle))
+	if client == nil {
+		return jsonResponse(nil, errors.New("web client handle not found"))
+	}
+	blob, err := client.MarshalSession()
+	if err != nil {
+		return jsonResponse(nil, err)
+	}
+	return jsonResponse(map[string]interface{}{"blob_hex": hex.EncodeToString(blob)}, nil)
+}
+
+//export GPWC_ExportCookies
+func GPWC_ExportCookies(handle C.ulonglong) *C.char {
+	client := getWebClient(uint64(handle))
+	if client == nil {
+		return jsonResponse(nil, errors.New("web client handle not found"))
+	}
+	cookies := client.GetCookies()
+	return jsonResponse(map[string]interface{}{
+		"header":   cookies.BuildCookieHeader(),
+		"netscape": cookies.ToNetscape(),
+	}, nil)
+}
+
 //export GPWC_CloseClient
 func GPWC_CloseClient(handle C.ulonglong) {
 	webClientsLock.Lock()
@@ -314,6 +355,15 @@ func GPWC_CreateShareLink(handle C.ulonglong, cMediaKey *C.char) *C.char {
 	mediaKey := C.GoString(cMediaKey)
 	link, err := client.CreateShareLink(mediaKey)
 	return jsonResponse(link, err)
+}
+
+//export GPMC_ScrapeShareURL
+func GPMC_ScrapeShareURL(cURL *C.char, timeoutMs C.longlong) *C.char {
+	targetURL := C.GoString(cURL)
+	ctx, cancel := getContext(timeoutMs)
+	defer cancel()
+	res, err := pe.ScrapeShareURL(ctx, targetURL)
+	return jsonResponse(res, err)
 }
 
 //export GPMC_FreeString

@@ -65,6 +65,19 @@ class TestCAbiFixes(unittest.TestCase):
             # If network is unreachable, it raises network error, but cookie parsing succeeded
             self.assertNotIn("no valid Google auth cookies found", str(exc))
 
+    def test_gpmc_scrape_share_url_cabi(self):
+        """Verify scrape_share_url works directly through the Go C-ABI engine."""
+        from photos_engine import scrape_share_url
+        with self.assertRaises(RuntimeError) as ctx:
+            scrape_share_url("https://photos.app.goo.gl/invalid_non_existent_url_test")
+        self.assertIn("GPMC_ScrapeShareURL failed", str(ctx.exception))
+
+    def test_gpwc_blob_invalid_fails(self):
+        """Verify NativeWebClient.from_blob fails gracefully on invalid blob data."""
+        with self.assertRaises(RuntimeError) as ctx:
+            NativeWebClient.from_blob(b"not_a_valid_blob")
+        self.assertIn("GPWC_CreateClientFromBlob failed", str(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

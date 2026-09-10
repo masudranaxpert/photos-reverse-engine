@@ -55,3 +55,12 @@ type DriveImportResult struct {
 	DownloadURL string `json:"download_url,omitempty"`
 }
 
+// ScrapedShare contains metadata parsed from a public Google Photos share link.
+type ScrapedShare struct {
+	ShareURL  string   `json:"share_url"`
+	AlbumKey  string   `json:"album_key"`
+	AuthKey   string   `json:"auth_key"`
+	MediaKeys []string `json:"media_keys"`
+}
+
+

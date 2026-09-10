@@ -7,7 +7,7 @@ Provides direct in-process C-ABI bindings to the native Go core library.
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
 
-from .client import GPMCClient, NativeWebClient, PhotosEngineClient
+from .client import GPMCClient, NativeWebClient, PhotosEngineClient, scrape_share_url
 from .models import (
     CookieStatus,
     DownloadInfo,
@@ -18,7 +18,6 @@ from .models import (
     ScrapedShare,
     ShareInfo,
 )
-from .scraper import scrape_share_url
 
 # Standard aliases
 Client = PhotosEngineClient

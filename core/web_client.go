@@ -1,23 +1,23 @@
 package core
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/sardanioss/httpcloak"
 )
 
-// WebClient interacts with Google Photos via Web RPCs using authentication cookies.
+// WebClient interacts with Google Photos via Web RPCs using authentic Firefox browser TLS emulation.
 type WebClient struct {
-	httpClient *http.Client
-	cookie     Cookie
+	session    *httpcloak.Session
 	globalData map[string]string
 }
 
@@ -27,20 +27,22 @@ func generateWebID() string {
 	return hex.EncodeToString(b)
 }
 
-// NewWebClient initializes a new Google Photos Web Client with the given cookies.
+// NewWebClient initializes a new Google Photos Web Client with cookies using httpcloak.
 func NewWebClient(cookie Cookie) (*WebClient, error) {
+	s := httpcloak.NewSession(
+		"firefox-latest",
+		httpcloak.WithoutRedirects(),
+		httpcloak.WithSessionTimeout(60*time.Second),
+	)
+	cookie.LoadIntoSession(s)
+
 	client := &WebClient{
-		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
-		cookie: cookie,
+		session: s,
 	}
 
 	globalData, err := client.getGlobalData()
 	if err != nil {
+		s.Close()
 		return nil, fmt.Errorf("failed to fetch global session data: %w", err)
 	}
 	client.globalData = globalData
@@ -48,30 +50,64 @@ func NewWebClient(cookie Cookie) (*WebClient, error) {
 	return client, nil
 }
 
+// NewWebClientFromBlob restores an active WebClient from a serialized session_blob.
+func NewWebClientFromBlob(blob []byte) (*WebClient, error) {
+	s, err := httpcloak.UnmarshalSession(blob)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal session blob: %w", err)
+	}
+	s.SetFollowRedirects(false)
+
+	client := &WebClient{
+		session: s,
+	}
+
+	globalData, err := client.getGlobalData()
+	if err != nil {
+		s.Close()
+		return nil, fmt.Errorf("failed to fetch global session data: %w", err)
+	}
+	client.globalData = globalData
+
+	return client, nil
+}
+
+// MarshalSession serializes the current live session (cookies, TLS state) to JSON bytes.
+func (c *WebClient) MarshalSession() ([]byte, error) {
+	if c.session == nil {
+		return nil, errors.New("client session is closed")
+	}
+	return c.session.Marshal()
+}
+
+// Close releases session resources.
+func (c *WebClient) Close() {
+	if c.session != nil {
+		c.session.Close()
+	}
+}
+
+// GetCookies retrieves all current cookies from the live session jar.
+func (c *WebClient) GetCookies() Cookie {
+	return CookiesFromSession(c.session)
+}
+
 func (c *WebClient) getGlobalData() (map[string]string, error) {
 	cacheBust := fmt.Sprintf("https://photos.google.com/?_t=%d", time.Now().Unix())
-	req, err := http.NewRequest("GET", cacheBust, nil)
+	resp, err := c.session.Get(context.Background(), cacheBust)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Cookie", c.cookie.BuildCookieHeader())
-	req.Header.Set("User-Agent", webUserAgent)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
+	defer resp.Close()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("photos.google.com returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	bodyStr, err := resp.Text()
 	if err != nil {
 		return nil, err
 	}
-	bodyStr := string(body)
 
 	fsidRe := regexp.MustCompile(`"FdrFJe":"(.*?)"`)
 	blRe := regexp.MustCompile(`"cfb2h":"(.*?)"`)
@@ -92,128 +128,171 @@ func (c *WebClient) getGlobalData() (map[string]string, error) {
 	}, nil
 }
 
-// SendBatchexecute posts an RPC request to Google Photos batchexecute endpoint and parses the response envelope.
+// SendBatchexecute posts an RPC request to Google Photos batchexecute endpoint via httpcloak.
 func (c *WebClient) SendBatchexecute(rpcID string, payloadData interface{}, timeout time.Duration) (interface{}, error) {
 	dataJSON, err := json.Marshal(payloadData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal payload: %w", err)
 	}
 
-	batchedReq := [][]interface{}{
-		{rpcID, string(dataJSON), nil, generateWebID()},
-	}
-	fReqJSON, err := json.Marshal([][][]interface{}{batchedReq})
+	envJSON, err := json.Marshal([][][]interface{}{
+		{
+			{rpcID, string(dataJSON), nil, "generic"},
+		},
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal f.req envelope: %w", err)
+		return nil, fmt.Errorf("failed to build envelope: %w", err)
 	}
 
 	form := url.Values{}
-	form.Set("f.req", string(fReqJSON))
+	form.Set("f.req", string(envJSON))
 	form.Set("at", c.globalData["at"])
 
 	q := url.Values{}
 	q.Set("rpcids", rpcID)
-	q.Set("source-path", "/")
 	q.Set("f.sid", c.globalData["f.sid"])
 	q.Set("bl", c.globalData["bl"])
+	q.Set("hl", "en-US")
+	q.Set("soc-app", "1")
+	q.Set("soc-platform", "1")
+	q.Set("soc-device", "1")
+	q.Set("_reqid", generateWebID())
 	q.Set("rt", "c")
 
 	reqURL := "https://photos.google.com/_/PhotosUi/data/batchexecute?" + q.Encode()
-	req, err := http.NewRequest("POST", reqURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return nil, err
-	}
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
-	req.Header.Set("Cookie", c.cookie.BuildCookieHeader())
-	req.Header.Set("User-Agent", webUserAgent)
-
-	client := c.httpClient
+	ctx := context.Background()
 	if timeout > 0 {
-		client = &http.Client{Timeout: timeout}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
-	resp, err := client.Do(req)
+	req := &httpcloak.Request{
+		Method: "POST",
+		URL:    reqURL,
+		Headers: map[string][]string{
+			"Content-Type": {"application/x-www-form-urlencoded;charset=UTF-8"},
+		},
+		Body: strings.NewReader(form.Encode()),
+	}
+
+	resp, err := c.session.Do(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("batchexecute request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Close()
 
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyStr, err := resp.Text()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	return parseBatchexecuteEnvelope(string(bodyBytes), rpcID)
+	return parseBatchexecuteEnvelope(bodyStr, rpcID)
 }
 
-func parseBatchexecuteEnvelope(body string, targetRPC string) (interface{}, error) {
-	clean := strings.TrimSpace(body)
-	if strings.HasPrefix(clean, ")]}'") {
-		clean = strings.TrimSpace(clean[4:])
+func parseBatchexecuteEnvelope(body, rpcID string) (interface{}, error) {
+	lines := strings.Split(body, "\n")
+	var targetLine string
+	for _, l := range lines {
+		trimmed := strings.TrimSpace(l)
+		if strings.HasPrefix(trimmed, `[["wrb.fr"`) || strings.HasPrefix(trimmed, `[`) {
+			if strings.Contains(trimmed, rpcID) {
+				targetLine = trimmed
+				break
+			}
+			if targetLine == "" && (strings.HasPrefix(trimmed, `[[`) || strings.HasPrefix(trimmed, `[`)) {
+				targetLine = trimmed
+			}
+		}
 	}
 
-	for _, line := range strings.Split(clean, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "[") {
-			continue
-		}
+	if targetLine == "" {
+		return nil, fmt.Errorf("no valid batchexecute array envelope found in response")
+	}
 
-		var parsed []interface{}
-		if err := json.Unmarshal([]byte(line), &parsed); err != nil {
-			continue
-		}
-
-		for _, chunk := range parsed {
-			if chunkArr, ok := chunk.([]interface{}); ok && len(chunkArr) >= 3 {
-				if rpc, ok := chunkArr[1].(string); ok && rpc == targetRPC {
-					if payloadStr, ok := chunkArr[2].(string); ok {
-						var innerData interface{}
-						if err := json.Unmarshal([]byte(payloadStr), &innerData); err == nil {
-							return innerData, nil
+	var outer [][]interface{}
+	if err := json.Unmarshal([]byte(targetLine), &outer); err != nil {
+		var flat []interface{}
+		if err2 := json.Unmarshal([]byte(targetLine), &flat); err2 == nil {
+			for _, item := range flat {
+				if itemArr, ok := item.([]interface{}); ok && len(itemArr) >= 3 {
+					if id, ok := itemArr[1].(string); ok && id == rpcID {
+						if payloadStr, ok := itemArr[2].(string); ok {
+							var res interface{}
+							if err3 := json.Unmarshal([]byte(payloadStr), &res); err3 == nil {
+								return res, nil
+							}
 						}
-						return payloadStr, nil
 					}
-					return chunkArr[2], nil
+				}
+			}
+		}
+		return nil, fmt.Errorf("failed to parse envelope array: %w", err)
+	}
+
+	for _, entry := range outer {
+		if len(entry) >= 3 {
+			id, _ := entry[1].(string)
+			if id == rpcID {
+				payloadStr, ok := entry[2].(string)
+				if !ok || payloadStr == "" {
+					return nil, nil
+				}
+				var res interface{}
+				if err := json.Unmarshal([]byte(payloadStr), &res); err != nil {
+					return nil, fmt.Errorf("failed to unmarshal inner payload string: %w", err)
+				}
+				return res, nil
+			}
+		}
+	}
+
+	for _, entry := range outer {
+		if len(entry) >= 3 {
+			if payloadStr, ok := entry[2].(string); ok && payloadStr != "" {
+				var res interface{}
+				if err := json.Unmarshal([]byte(payloadStr), &res); err == nil {
+					return res, nil
 				}
 			}
 		}
 	}
 
-	return nil, fmt.Errorf("RPC %s not found in batchexecute response", targetRPC)
+	return nil, fmt.Errorf("rpcID %s not found in response envelope", rpcID)
 }
 
 func safeGetIndex(data interface{}, indices ...int) interface{} {
-	current := data
+	curr := data
 	for _, idx := range indices {
-		arr, ok := current.([]interface{})
+		arr, ok := curr.([]interface{})
 		if !ok || idx < 0 || idx >= len(arr) {
 			return nil
 		}
-		current = arr[idx]
+		curr = arr[idx]
 	}
-	return current
+	return curr
 }
 
-// ImportFromDrive imports a Google Drive file into Google Photos via SusGud RPC and fetches download URL.
-func (c *WebClient) ImportFromDrive(driveFileID string, mimeType string, cleanup bool) (*DriveImportResult, error) {
-	if mimeType == "" {
-		mimeType = "video/*"
+// ImportFromDrive imports a Google Drive file into Google Photos via SusGud RPC.
+func (c *WebClient) ImportFromDrive(driveFileID, mimeType string, cleanup bool) (*DriveImportResult, error) {
+	payloadData := []interface{}{
+		[]interface{}{
+			[]interface{}{
+				driveFileID,
+				[]interface{}{mimeType, nil, nil, nil, 1},
+			},
+		},
 	}
 
-	// Payload matching SusGud: [[[driveFileID, mimeType]]]
-	items := [][]interface{}{
-		{driveFileID, mimeType},
-	}
-	payloadData := []interface{}{items}
-
-	respData, err := c.SendBatchexecute("SusGud", payloadData, 120*time.Second)
+	respData, err := c.SendBatchexecute("SusGud", payloadData, 45*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("import from drive request failed: %w", err)
+		return nil, fmt.Errorf("SusGud RPC failed: %w", err)
 	}
 
 	mediaKey, _ := safeGetIndex(respData, 0, 0, 1, 0).(string)
 	dedupKey, _ := safeGetIndex(respData, 0, 0, 1, 3).(string)
+
 	if mediaKey == "" {
 		mediaKey, _ = safeGetIndex(respData, 0, 1, 0).(string)
 		dedupKey, _ = safeGetIndex(respData, 0, 1, 3).(string)
@@ -251,7 +330,7 @@ func (c *WebClient) ImportFromDrive(driveFileID string, mimeType string, cleanup
 	return result, nil
 }
 
-// GetDownloadURL retrieves direct download URL and dedup key for a mediaKey using VrseUb RPC.
+// GetDownloadURL retrieves direct download URL and dedup key for a mediaKey using VrseUb RPC with photo page fallback.
 func (c *WebClient) GetDownloadURL(mediaKey string) (*DownloadInfo, error) {
 	payloadData := []interface{}{mediaKey, nil, nil, nil, nil}
 	respData, err := c.SendBatchexecute("VrseUb", payloadData, 30*time.Second)
@@ -274,54 +353,71 @@ func (c *WebClient) GetDownloadURL(mediaKey string) (*DownloadInfo, error) {
 		}
 	}
 
+	// Fallback to direct HTML photo page fetch via httpcloak session
+	if downloadURL == "" {
+		photoURL := fmt.Sprintf("https://photos.google.com/photo/%s", mediaKey)
+		resp, err := c.session.Get(context.Background(), photoURL)
+		if err == nil {
+			defer resp.Close()
+			if resp.StatusCode == 200 {
+				bodyStr, _ := resp.Text()
+				videoURLPattern := regexp.MustCompile(`https://video-downloads\.googleusercontent\.com/[A-Za-z0-9_\-]+`)
+				if m := videoURLPattern.FindString(bodyStr); m != "" {
+					downloadURL = m
+				}
+			}
+		}
+	}
+
 	return &DownloadInfo{
 		MediaKey:    mediaKey,
-		DedupKey:    dedupKey,
 		DownloadURL: downloadURL,
+		DedupKey:    dedupKey,
 	}, nil
 }
 
-// CreateShareLink creates a public photos.app.goo.gl link for a media key using SFKp8c RPC.
+// CreateShareLink creates public photos.app.goo.gl link via Go core SFKp8c RPC.
 func (c *WebClient) CreateShareLink(mediaKey string) (*PublicShareLink, error) {
-	fReq := fmt.Sprintf(
-		`[[["SFKp8c","[null,null,[null,1,null,null,1,null,[[[1,1],0],[[1,2],0],[[2,1],1],[[2,2],1],[[3,1],1]]],[2,null,[[[\"%s\"]]],null,null,null,[1],0,null,null,null,null,null,0],null,null,null,null,[1,2,3,5,6]]",null,"generic"]]]`,
-		mediaKey,
-	)
+	payload := fmt.Sprintf(`[null,null,null,null,null,null,null,null,["%s"]]`, mediaKey)
+	envelope := fmt.Sprintf(`[[["SFKp8c","%s",null,"generic"]]]`, strings.ReplaceAll(payload, `"`, `\"`))
 
 	form := url.Values{}
-	form.Set("f.req", fReq)
+	form.Set("f.req", envelope)
 	form.Set("at", c.globalData["at"])
 
 	q := url.Values{}
 	q.Set("rpcids", "SFKp8c")
-	q.Set("source-path", "/photo/"+mediaKey)
+	q.Set("source-path", fmt.Sprintf("/photo/%s", mediaKey))
 	q.Set("f.sid", c.globalData["f.sid"])
 	q.Set("bl", c.globalData["bl"])
+	q.Set("hl", "en-US")
+	q.Set("_reqid", generateWebID())
 	q.Set("rt", "c")
 
 	reqURL := "https://photos.google.com/_/PhotosUi/data/batchexecute?" + q.Encode()
-	req, err := http.NewRequest("POST", reqURL, strings.NewReader(form.Encode()))
+
+	req := &httpcloak.Request{
+		Method: "POST",
+		URL:    reqURL,
+		Headers: map[string][]string{
+			"Content-Type": {"application/x-www-form-urlencoded;charset=UTF-8"},
+		},
+		Body: strings.NewReader(form.Encode()),
+	}
+
+	resp, err := c.session.Do(context.Background(), req)
 	if err != nil {
 		return nil, err
 	}
+	defer resp.Close()
 
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8")
-	req.Header.Set("Cookie", c.cookie.BuildCookieHeader())
-	req.Header.Set("User-Agent", webUserAgent)
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bodyBytes, err := io.ReadAll(resp.Body)
+	bodyStr, err := resp.Text()
 	if err != nil {
 		return nil, err
 	}
 
 	shareRe := regexp.MustCompile(`"(https://photos\.app\.goo\.gl/([^"]+))"`)
-	match := shareRe.FindStringSubmatch(string(bodyBytes))
+	match := shareRe.FindStringSubmatch(bodyStr)
 	if len(match) < 3 {
 		return nil, errors.New("could not find share link in response")
 	}
@@ -343,9 +439,9 @@ func (c *WebClient) MoveToTrash(dedupKeys []string) error {
 	return err
 }
 
-// EmptyTrash empties Google Photos trash using vzCSKc RPC.
+// EmptyTrash empties the trash using e2FP6c RPC.
 func (c *WebClient) EmptyTrash() error {
-	payloadData := []interface{}{[]interface{}{}, nil, 1}
-	_, err := c.SendBatchexecute("vzCSKc", payloadData, 30*time.Second)
+	payloadData := []interface{}{nil, 2}
+	_, err := c.SendBatchexecute("e2FP6c", payloadData, 30*time.Second)
 	return err
 }

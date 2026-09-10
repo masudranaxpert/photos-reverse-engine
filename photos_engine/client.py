@@ -16,9 +16,9 @@ from .models import (
     ExistResult,
     PublicShareLink,
     SaveResult,
+    ScrapedShare,
     ShareInfo,
 )
-from .scraper import scrape_share_url
 
 
 def _get_lib_path() -> str:
@@ -100,6 +100,52 @@ def _parse_c_json(lib, raw_ptr: Optional[int], func_name: str = "Go function") -
     return result.get("data")
 
 
+_loaded_libs: Dict[str, ctypes.CDLL] = {}
+
+
+def _get_cdll(dll_path: Optional[str] = None) -> ctypes.CDLL:
+    path = dll_path or _get_lib_path()
+    if path not in _loaded_libs:
+        lib = ctypes.CDLL(path)
+        if hasattr(lib, "GPMC_FreeString"):
+            lib.GPMC_FreeString.argtypes = [ctypes.c_void_p]
+            lib.GPMC_FreeString.restype = None
+        if hasattr(lib, "GPMC_ScrapeShareURL"):
+            lib.GPMC_ScrapeShareURL.argtypes = [ctypes.c_char_p, ctypes.c_longlong]
+            lib.GPMC_ScrapeShareURL.restype = ctypes.c_void_p
+        _loaded_libs[path] = lib
+    return _loaded_libs[path]
+
+
+def scrape_share_url(
+    url: str,
+    dll_path: Optional[str] = None,
+    timeout: Optional[float] = None,
+) -> ScrapedShare:
+    """
+    Fetch and parse a Google Photos shared album URL to extract album_key, auth_key, and media_keys.
+    Executed directly via the native Go core engine.
+
+    Args:
+        url: Public Google Photos share URL (photos.app.goo.gl or photos.google.com/share/...)
+        dll_path: Optional custom path to compiled Go shared library
+        timeout: Optional network timeout in seconds
+
+    Returns:
+        ScrapedShare dataclass containing parsed keys
+    """
+    lib = _get_cdll(dll_path)
+    timeout_ms = int(timeout * 1000) if timeout else 0
+    raw_ptr = lib.GPMC_ScrapeShareURL(url.encode("utf-8"), ctypes.c_longlong(timeout_ms))
+    data = _parse_c_json(lib, raw_ptr, "GPMC_ScrapeShareURL")
+    return ScrapedShare(
+        share_url=data.get("share_url", url),
+        album_key=data.get("album_key", ""),
+        auth_key=data.get("auth_key", ""),
+        media_keys=data.get("media_keys") or [],
+    )
+
+
 class PhotosEngineClient:
     """
     Direct in-process Python client for Google Photos operations, powered by the Go core library.
@@ -165,6 +211,10 @@ class PhotosEngineClient:
 
         self._lib.GPMC_FindMediaByHash.argtypes = [c_ull, c_char_p, c_ll]
         self._lib.GPMC_FindMediaByHash.restype = c_void_p
+
+        if hasattr(self._lib, "GPMC_ScrapeShareURL"):
+            self._lib.GPMC_ScrapeShareURL.argtypes = [c_char_p, c_ll]
+            self._lib.GPMC_ScrapeShareURL.restype = c_void_p
 
         self._lib.GPMC_FreeString.argtypes = [c_void_p]
         self._lib.GPMC_FreeString.restype = None
@@ -291,6 +341,10 @@ class PhotosEngineClient:
                 h.update(chunk)
         return self.find_by_hash(h.hexdigest())
 
+    def scrape_share_url(self, share_url: str, timeout: Optional[float] = None) -> ScrapedShare:
+        """Fetch and extract album_key, auth_key, and media_keys from a share URL via Go core engine."""
+        return scrape_share_url(share_url, dll_path=self.dll_path, timeout=timeout)
+
     def import_share_url(
         self,
         share_url: str,
@@ -298,11 +352,11 @@ class PhotosEngineClient:
     ) -> Dict[str, Any]:
         """
         Complete end-to-end import workflow:
-        1. Scrapes share URL using httpcloak and selectolax
+        1. Scrapes share URL via Go core engine
         2. Imports shared media into user's account with Pixel XL original quality spoofing
         3. Returns detailed summary
         """
-        scraped = scrape_share_url(share_url)
+        scraped = self.scrape_share_url(share_url, timeout=timeout)
         if not scraped.media_keys:
             return {
                 "success": False,
@@ -338,14 +392,19 @@ class NativeWebClient:
     Provides direct access to Go's GPWC implementation for cookies, Drive import, and download URLs.
     """
 
-    def __init__(self, cookies: str, dll_path: Optional[str] = None):
-        self.cookies = (cookies or "").strip()
-        if not self.cookies:
-            raise ValueError("Cookies cannot be empty")
-
+    def __init__(self, cookies: Optional[str] = None, dll_path: Optional[str] = None, _handle: Optional[int] = None):
         self.dll_path = dll_path or _get_lib_path()
         self._lib = ctypes.CDLL(self.dll_path)
         self._setup_bindings()
+
+        if _handle is not None:
+            self._handle = _handle
+            self.cookies = ""
+            return
+
+        self.cookies = (cookies or "").strip()
+        if not self.cookies:
+            raise ValueError("Cookies cannot be empty")
 
         if hasattr(self._lib, "GPWC_CreateClient"):
             raw_ptr = self._lib.GPWC_CreateClient(self.cookies.encode("utf-8"))
@@ -365,6 +424,18 @@ class NativeWebClient:
         if hasattr(self._lib, "GPWC_CreateClient"):
             self._lib.GPWC_CreateClient.argtypes = [c_char_p]
             self._lib.GPWC_CreateClient.restype = c_void_p
+
+        if hasattr(self._lib, "GPWC_CreateClientFromBlob"):
+            self._lib.GPWC_CreateClientFromBlob.argtypes = [c_char_p]
+            self._lib.GPWC_CreateClientFromBlob.restype = c_void_p
+
+        if hasattr(self._lib, "GPWC_ExportSessionBlob"):
+            self._lib.GPWC_ExportSessionBlob.argtypes = [c_ull]
+            self._lib.GPWC_ExportSessionBlob.restype = c_void_p
+
+        if hasattr(self._lib, "GPWC_ExportCookies"):
+            self._lib.GPWC_ExportCookies.argtypes = [c_ull]
+            self._lib.GPWC_ExportCookies.restype = c_void_p
 
         self._lib.GPWC_NewClient.argtypes = [c_char_p]
         self._lib.GPWC_NewClient.restype = c_ull
@@ -450,6 +521,30 @@ class NativeWebClient:
             auth_key=data.get("auth_key", ""),
             media_keys=[media_key],
         )
+
+    @classmethod
+    def from_blob(cls, blob: Union[bytes, str], dll_path: Optional[str] = None) -> "NativeWebClient":
+        """Restore an active NativeWebClient from a serialized session blob (bytes or hex string)."""
+        blob_hex = blob.hex() if isinstance(blob, bytes) else blob.strip()
+        lib_path = dll_path or _get_lib_path()
+        lib = ctypes.CDLL(lib_path)
+        lib.GPWC_CreateClientFromBlob.argtypes = [ctypes.c_char_p]
+        lib.GPWC_CreateClientFromBlob.restype = ctypes.c_void_p
+        lib.GPMC_FreeString.argtypes = [ctypes.c_void_p]
+        lib.GPMC_FreeString.restype = None
+
+        raw_ptr = lib.GPWC_CreateClientFromBlob(blob_hex.encode("utf-8"))
+        data = _parse_c_json(lib, raw_ptr, "GPWC_CreateClientFromBlob")
+        return cls(dll_path=lib_path, _handle=data["handle"])
+
+    def export_session_blob(self) -> bytes:
+        """Export serialized session blob (cookies, TLS tickets) for database persistence."""
+        data = self._call(self._lib.GPWC_ExportSessionBlob)
+        return bytes.fromhex(data.get("blob_hex", ""))
+
+    def export_cookies(self) -> Dict[str, str]:
+        """Export current live cookies from the session jar as header and Netscape string."""
+        return self._call(self._lib.GPWC_ExportCookies)
 
     def close(self):
         """Release Go client handle."""

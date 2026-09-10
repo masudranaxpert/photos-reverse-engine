@@ -107,7 +107,7 @@ photos_engine.import_share_url(
 ) -> Dict[str, Any]
 ```
 
-Scrapes a public Google Photos shared link (via `httpcloak` + `selectolax`) and saves all contained media items into your library with Google Pixel XL original quality backup spoofing.
+Scrapes a public Google Photos shared link (via native Go core engine) and saves all contained media items into your library with Google Pixel XL original quality backup spoofing.
 
 **Parameters:**
 
