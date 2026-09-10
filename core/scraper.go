@@ -28,7 +28,7 @@ func ScrapeShareURL(ctx context.Context, targetURL string) (*ScrapedShare, error
 		return nil, errors.New("share URL cannot be empty")
 	}
 
-	session := httpcloak.NewSession("chrome-146", httpcloak.WithSessionTimeout(30*time.Second))
+	session := httpcloak.NewSession("chrome-latest", httpcloak.WithSessionTimeout(30*time.Second))
 	defer session.Close()
 
 	resp, err := session.Get(ctx, cleanURL)

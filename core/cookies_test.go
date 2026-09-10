@@ -164,5 +164,12 @@ func TestHttpcloakSession(t *testing.T) {
 	if len(s2.GetCookies()) == 0 {
 		t.Error("expected restored session to have cookies")
 	}
+
+	// Verify scraper session preset (chrome-latest)
+	sChrome := httpcloak.NewSession("chrome-latest", httpcloak.WithoutRedirects())
+	defer sChrome.Close()
+	if sChrome == nil {
+		t.Error("expected valid chrome-latest session")
+	}
 }
 
