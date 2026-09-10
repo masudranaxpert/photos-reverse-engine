@@ -473,11 +473,17 @@ func importFromDriveInternal(c *WebClient, driveFileID, mimeType string, cleanup
 	if err != nil {
 		return nil, err
 	}
-	if len(batchRes.Items) == 0 || batchRes.Items[0].MediaKey == "" {
-		return nil, fmt.Errorf("mediaKey not found in SusGud response")
+	if len(batchRes.Items) == 0 {
+		return nil, fmt.Errorf("mediaKey not found in SusGud response: empty items list (drive_id=%s mime=%s)", driveFileID, mimeType)
 	}
-
 	item := batchRes.Items[0]
+	if item.MediaKey == "" {
+		errMsg := item.Error
+		if errMsg == "" {
+			errMsg = fmt.Sprintf("status=%d", item.Status)
+		}
+		return nil, fmt.Errorf("mediaKey not found in SusGud response: %s (drive_id=%s mime=%s)", errMsg, driveFileID, mimeType)
+	}
 	res := &DriveImportResult{
 		DriveFileID: item.DriveFileID,
 		MediaKey:    item.MediaKey,
