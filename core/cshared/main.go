@@ -686,7 +686,7 @@ func GPWC_ImportFromDrive_Async(handle C.ulonglong, cDriveID *C.char, cMimeType 
 		return
 	}
 	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
-		return client.ImportFromDrive(driveID, mimeType, cleanupBool)
+		return client.ImportFromDriveWithContext(ctx, driveID, mimeType, cleanupBool)
 	})
 }
 

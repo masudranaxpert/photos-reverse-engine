@@ -890,7 +890,7 @@ class NativeWebClient:
         drive_file_id: str,
         mime_type: str = "video/*",
         cleanup: bool = False,
-        timeout: Optional[float] = None,
+        timeout: Optional[float] = 300.0,  # 5 min; large files need more than Go's 45s default
     ) -> DriveImportResult:
         """Import Google Drive file to Photos asynchronously using Go goroutines."""
         data = await self._call_async(

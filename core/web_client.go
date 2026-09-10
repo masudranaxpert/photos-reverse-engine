@@ -449,11 +449,27 @@ func (c *WebClient) BatchImportFromDrive(items []DriveBatchItem, cleanup bool, t
 	return result, nil
 }
 
+// ImportFromDriveWithContext imports a single Google Drive file using the provided context for timeout control.
+func (c *WebClient) ImportFromDriveWithContext(ctx context.Context, driveFileID, mimeType string, cleanup bool) (*DriveImportResult, error) {
+	timeout := 120 * time.Second // fallback; ctx deadline takes priority
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining := time.Until(deadline)
+		if remaining > 0 {
+			timeout = remaining
+		}
+	}
+	return importFromDriveInternal(c, driveFileID, mimeType, cleanup, timeout)
+}
+
 // ImportFromDrive imports a single Google Drive file into Google Photos via SusGud RPC.
 func (c *WebClient) ImportFromDrive(driveFileID, mimeType string, cleanup bool) (*DriveImportResult, error) {
+	return importFromDriveInternal(c, driveFileID, mimeType, cleanup, 120*time.Second)
+}
+
+func importFromDriveInternal(c *WebClient, driveFileID, mimeType string, cleanup bool, timeout time.Duration) (*DriveImportResult, error) {
 	batchRes, err := c.BatchImportFromDrive([]DriveBatchItem{
 		{DriveFileID: driveFileID, MimeType: mimeType},
-	}, cleanup, 60*time.Second)
+	}, cleanup, timeout)
 	if err != nil {
 		return nil, err
 	}
