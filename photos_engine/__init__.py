@@ -7,7 +7,13 @@ Provides direct in-process C-ABI bindings to the native Go core library.
 from typing import Any, Dict, List, Optional, Union
 from pathlib import Path
 
-from .client import GPMCClient, NativeWebClient, PhotosEngineClient, scrape_share_url
+from .client import (
+    GPMCClient,
+    NativeWebClient,
+    PhotosEngineClient,
+    scrape_share_url,
+    scrape_share_url_async,
+)
 from .models import (
     AccountResetResult,
     CookieStatus,
@@ -74,6 +80,32 @@ def is_file_in_library(file_path: Union[str, Path], auth_data: Optional[str] = N
     return _get_default_client(auth_data).is_file_in_library(file_path)
 
 
+async def get_token_async(auth_data: Optional[str] = None, timeout: Optional[float] = None) -> str:
+    """Get a valid OAuth2 Bearer token asynchronously via native goroutine."""
+    return await _get_default_client(auth_data).get_token_async(timeout=timeout)
+
+
+async def get_download_url_async(
+    media_key: str, auth_data: Optional[str] = None, timeout: Optional[float] = None
+) -> DownloadInfo:
+    """Retrieve download URL asynchronously via native goroutine."""
+    return await _get_default_client(auth_data).get_download_url_async(media_key, timeout=timeout)
+
+
+async def create_share_link_async(
+    media_keys: Union[str, List[str]], auth_data: Optional[str] = None, timeout: Optional[float] = None
+) -> PublicShareLink:
+    """Generate a public photos.app.goo.gl link asynchronously via native goroutine."""
+    return await _get_default_client(auth_data).create_share_link_async(media_keys, timeout=timeout)
+
+
+async def import_share_url_async(
+    share_url: str, auth_data: Optional[str] = None, timeout: Optional[float] = None
+) -> Dict[str, Any]:
+    """Scrape and import shared media asynchronously via native goroutine."""
+    return await _get_default_client(auth_data).import_share_url_async(share_url, timeout=timeout)
+
+
 __all__ = [
     "Client",
     "PhotosEngineClient",
@@ -81,12 +113,17 @@ __all__ = [
     "WebClient",
     "NativeWebClient",
     "get_token",
+    "get_token_async",
     "get_download_url",
+    "get_download_url_async",
     "create_share_link",
+    "create_share_link_async",
     "import_share_url",
+    "import_share_url_async",
     "delete_by_media_key",
     "is_file_in_library",
     "scrape_share_url",
+    "scrape_share_url_async",
     "DownloadInfo",
     "ShareInfo",
     "SaveResult",
@@ -101,3 +138,4 @@ __all__ = [
     "AccountResetResult",
     "StorageQuota",
 ]
+

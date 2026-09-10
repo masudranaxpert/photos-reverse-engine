@@ -2,12 +2,15 @@
 Native Python bindings for Google Photos Mobile Client (GPMC), powered directly by the Go core DLL.
 """
 
+import asyncio
 import ctypes
 import json
 import os
 import platform
+import threading
+import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from .models import (
     AccountResetResult,
@@ -143,6 +146,184 @@ def scrape_share_url(
     timeout_ms = int(timeout * 1000) if timeout else 0
     raw_ptr = lib.GPMC_ScrapeShareURL(url.encode("utf-8"), ctypes.c_longlong(timeout_ms))
     data = _parse_c_json(lib, raw_ptr, "GPMC_ScrapeShareURL")
+    return ScrapedShare(
+        share_url=data.get("share_url", url),
+        album_key=data.get("album_key", ""),
+        auth_key=data.get("auth_key", ""),
+        media_keys=data.get("media_keys") or [],
+    )
+
+
+ASYNC_CALLBACK = ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_char_p, ctypes.c_char_p)
+
+
+class _AsyncCallbackManager:
+    """
+    Manages native async callbacks from Go goroutines for photos_engine.
+    Bridges Go's goroutines and Python's asyncio via loop.call_soon_threadsafe.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._pending: Dict[int, Tuple[asyncio.Future, asyncio.AbstractEventLoop, float]] = {}
+        self._callback_ref: Optional[ASYNC_CALLBACK] = None
+        self._lib = None
+
+    def _on_callback(self, callback_id: int, response_json: Optional[bytes], error: Optional[bytes]):
+        """Called by Go runtime on a background OS thread when Goroutine completes."""
+        with self._lock:
+            if callback_id not in self._pending:
+                return
+            future, loop, start_time = self._pending.pop(callback_id)
+
+        if error and error != b"":
+            err_str = error.decode("utf-8")
+            try:
+                err_data = json.loads(err_str)
+                err_msg = err_data.get("error", err_str)
+            except Exception:
+                err_msg = err_str
+            loop.call_soon_threadsafe(future.set_exception, RuntimeError(err_msg))
+        elif response_json:
+            try:
+                data = json.loads(response_json.decode("utf-8"))
+                if not data.get("success", False):
+                    loop.call_soon_threadsafe(
+                        future.set_exception,
+                        RuntimeError(data.get("error", "Unknown Go error"))
+                    )
+                else:
+                    loop.call_soon_threadsafe(future.set_result, data.get("data"))
+            except Exception as e:
+                loop.call_soon_threadsafe(future.set_exception, RuntimeError(f"Failed to parse Go response: {e}"))
+        else:
+            loop.call_soon_threadsafe(future.set_exception, RuntimeError("No response received from Go engine"))
+
+    def _ensure_callback(self, lib):
+        if self._callback_ref is None:
+            self._lib = lib
+            self._callback_ref = ASYNC_CALLBACK(self._on_callback)
+
+    def register_request(self, lib) -> Tuple[int, asyncio.Future]:
+        self._ensure_callback(lib)
+        callback_id = lib.GPMC_RegisterCallback(self._callback_ref)
+        loop = asyncio.get_running_loop()
+        future = loop.create_future()
+        start_time = time.perf_counter()
+
+        with self._lock:
+            self._pending[callback_id] = (future, loop, start_time)
+
+        def _on_future_done(fut: asyncio.Future, _cid: int = callback_id, _lib=lib, _self=self) -> None:
+            if fut.cancelled():
+                try:
+                    _lib.GPMC_CancelRequest(_cid)
+                    _lib.GPMC_UnregisterCallback(_cid)
+                except Exception:
+                    pass
+                with _self._lock:
+                    _self._pending.pop(_cid, None)
+
+        future.add_done_callback(_on_future_done)
+        return callback_id, future
+
+
+_async_manager: Optional[_AsyncCallbackManager] = None
+_async_manager_lock = threading.Lock()
+
+
+def _get_async_manager() -> _AsyncCallbackManager:
+    global _async_manager
+    if _async_manager is None:
+        with _async_manager_lock:
+            if _async_manager is None:
+                _async_manager = _AsyncCallbackManager()
+    return _async_manager
+
+
+def _setup_async_lib(lib: ctypes.CDLL) -> None:
+    """Configure ctypes bindings for async Go C-ABI functions."""
+    if hasattr(lib, "_gpmc_async_initialized"):
+        return
+
+    c_ull = ctypes.c_ulonglong
+    c_char_p = ctypes.c_char_p
+    c_ll = ctypes.c_longlong
+    c_int = ctypes.c_int
+    c_i64 = ctypes.c_int64
+
+    if hasattr(lib, "GPMC_RegisterCallback"):
+        lib.GPMC_RegisterCallback.argtypes = [ASYNC_CALLBACK]
+        lib.GPMC_RegisterCallback.restype = c_i64
+        lib.GPMC_UnregisterCallback.argtypes = [c_i64]
+        lib.GPMC_UnregisterCallback.restype = None
+        lib.GPMC_CancelRequest.argtypes = [c_i64]
+        lib.GPMC_CancelRequest.restype = None
+
+    if hasattr(lib, "GPMC_GetToken_Async"):
+        lib.GPMC_GetToken_Async.argtypes = [c_ull, c_ll, c_i64]
+        lib.GPMC_GetToken_Async.restype = None
+
+    if hasattr(lib, "GPMC_GetDownloadURL_Async"):
+        lib.GPMC_GetDownloadURL_Async.argtypes = [c_ull, c_char_p, c_ll, c_i64]
+        lib.GPMC_GetDownloadURL_Async.restype = None
+
+    if hasattr(lib, "GPMC_CreateShareLink_Async"):
+        lib.GPMC_CreateShareLink_Async.argtypes = [c_ull, c_char_p, c_ll, c_i64]
+        lib.GPMC_CreateShareLink_Async.restype = None
+
+    if hasattr(lib, "GPMC_DeletePermanently_Async"):
+        lib.GPMC_DeletePermanently_Async.argtypes = [c_ull, c_char_p, c_ll, c_i64]
+        lib.GPMC_DeletePermanently_Async.restype = None
+
+    if hasattr(lib, "GPMC_DeleteByMediaKey_Async"):
+        lib.GPMC_DeleteByMediaKey_Async.argtypes = [c_ull, c_char_p, c_ll, c_i64]
+        lib.GPMC_DeleteByMediaKey_Async.restype = None
+
+    if hasattr(lib, "GPMC_ImportSharedMedia_Async"):
+        lib.GPMC_ImportSharedMedia_Async.argtypes = [c_ull, c_char_p, c_char_p, c_char_p, c_ll, c_i64]
+        lib.GPMC_ImportSharedMedia_Async.restype = None
+
+    if hasattr(lib, "GPMC_ScrapeShareURL_Async"):
+        lib.GPMC_ScrapeShareURL_Async.argtypes = [c_char_p, c_ll, c_i64]
+        lib.GPMC_ScrapeShareURL_Async.restype = None
+
+    if hasattr(lib, "GPWC_CheckStatus_Async"):
+        lib.GPWC_CheckStatus_Async.argtypes = [c_char_p, c_ll, c_i64]
+        lib.GPWC_CheckStatus_Async.restype = None
+
+    if hasattr(lib, "GPWC_GetDownloadURL_Async"):
+        lib.GPWC_GetDownloadURL_Async.argtypes = [c_ull, c_char_p, c_ll, c_i64]
+        lib.GPWC_GetDownloadURL_Async.restype = None
+
+    if hasattr(lib, "GPWC_ImportFromDrive_Async"):
+        lib.GPWC_ImportFromDrive_Async.argtypes = [c_ull, c_char_p, c_char_p, c_int, c_ll, c_i64]
+        lib.GPWC_ImportFromDrive_Async.restype = None
+
+    if hasattr(lib, "GPWC_CreateShareLink_Async"):
+        lib.GPWC_CreateShareLink_Async.argtypes = [c_ull, c_char_p, c_ll, c_i64]
+        lib.GPWC_CreateShareLink_Async.restype = None
+
+    if hasattr(lib, "GPWC_GetStorageQuota_Async"):
+        lib.GPWC_GetStorageQuota_Async.argtypes = [c_ull, c_ll, c_i64]
+        lib.GPWC_GetStorageQuota_Async.restype = None
+
+    lib._gpmc_async_initialized = True
+
+
+async def scrape_share_url_async(
+    url: str,
+    dll_path: Optional[str] = None,
+    timeout: Optional[float] = None,
+) -> ScrapedShare:
+    """Fetch and parse a Google Photos shared album URL asynchronously using Go goroutines."""
+    lib = _get_cdll(dll_path)
+    _setup_async_lib(lib)
+    manager = _get_async_manager()
+    callback_id, future = manager.register_request(lib)
+    timeout_ms = int(timeout * 1000) if timeout else 0
+    lib.GPMC_ScrapeShareURL_Async(url.encode("utf-8"), ctypes.c_longlong(timeout_ms), ctypes.c_int64(callback_id))
+    data = await future
     return ScrapedShare(
         share_url=data.get("share_url", url),
         album_key=data.get("album_key", ""),
@@ -386,6 +567,110 @@ class PhotosEngineClient:
             "import_result": import_result,
         }
 
+    async def _call_async(self, func, *args, timeout: Optional[float] = None) -> Any:
+        """Call a Go CGo async function using native goroutines and asyncio.Future."""
+        _setup_async_lib(self._lib)
+        manager = _get_async_manager()
+        callback_id, future = manager.register_request(self._lib)
+        timeout_ms = int(timeout * 1000) if timeout else 0
+        func(self._handle, *args, ctypes.c_longlong(timeout_ms), ctypes.c_int64(callback_id))
+        return await future
+
+    async def get_token_async(self, timeout: Optional[float] = None) -> str:
+        """Get a valid OAuth2 Bearer token asynchronously using Go goroutines."""
+        return await self._call_async(self._lib.GPMC_GetToken_Async, timeout=timeout)
+
+    async def get_download_url_async(self, media_key: str, timeout: Optional[float] = None) -> DownloadInfo:
+        """Retrieve direct download URL asynchronously using Go goroutines."""
+        data = await self._call_async(self._lib.GPMC_GetDownloadURL_Async, media_key.encode("utf-8"), timeout=timeout)
+        return DownloadInfo(
+            media_key=data.get("media_key", media_key),
+            filename=data.get("filename", ""),
+            file_size=data.get("file_size", 0),
+            download_url=data.get("download_url", ""),
+            sha1_hex=data.get("sha1_hex", ""),
+            dedup_key=data.get("dedup_key", ""),
+        )
+
+    async def create_share_link_async(self, media_keys: Union[str, List[str]], timeout: Optional[float] = None) -> PublicShareLink:
+        """Generate a public photos.app.goo.gl link asynchronously using Go goroutines."""
+        if isinstance(media_keys, str):
+            keys = [media_keys]
+        else:
+            keys = list(media_keys)
+        keys_json = json.dumps(keys).encode("utf-8")
+        data = await self._call_async(self._lib.GPMC_CreateShareLink_Async, keys_json, timeout=timeout)
+        return PublicShareLink(
+            share_url=data.get("share_url", ""),
+            envelope_key=data.get("envelope_key", ""),
+            auth_key=data.get("auth_key", ""),
+            media_keys=data.get("media_keys", keys),
+        )
+
+    async def delete_permanently_async(self, dedup_key: str, timeout: Optional[float] = None) -> bool:
+        """Permanently delete media item by its dedup key asynchronously using Go goroutines."""
+        res = await self._call_async(self._lib.GPMC_DeletePermanently_Async, dedup_key.encode("utf-8"), timeout=timeout)
+        return bool(res)
+
+    async def delete_by_media_key_async(self, media_key: str, timeout: Optional[float] = None) -> bool:
+        """Permanently delete media item by media key asynchronously using Go goroutines."""
+        res = await self._call_async(self._lib.GPMC_DeleteByMediaKey_Async, media_key.encode("utf-8"), timeout=timeout)
+        return bool(res)
+
+    async def import_shared_media_async(
+        self, media_keys: List[str], auth_key: str, album_key: str, timeout: Optional[float] = None
+    ) -> SaveResult:
+        """Import shared photos/videos into user's account asynchronously using Go goroutines."""
+        keys_json = json.dumps(media_keys).encode("utf-8")
+        data = await self._call_async(
+            self._lib.GPMC_ImportSharedMedia_Async,
+            keys_json,
+            auth_key.encode("utf-8"),
+            album_key.encode("utf-8"),
+            timeout=timeout,
+        )
+        return SaveResult(
+            status=data.get("status", 0),
+            status_message=data.get("status_message", ""),
+            new_media_keys=data.get("new_media_keys") or [],
+            is_processing=data.get("is_processing", False),
+        )
+
+    async def scrape_share_url_async(self, share_url: str, timeout: Optional[float] = None) -> ScrapedShare:
+        """Fetch and extract album_key, auth_key, and media_keys asynchronously using Go goroutines."""
+        return await scrape_share_url_async(share_url, dll_path=self.dll_path, timeout=timeout)
+
+    async def import_share_url_async(
+        self,
+        share_url: str,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Complete end-to-end import workflow asynchronously using Go goroutines."""
+        scraped = await self.scrape_share_url_async(share_url, timeout=timeout)
+        if not scraped.media_keys:
+            return {
+                "success": False,
+                "error": "No media keys found in share URL",
+                "scraped": scraped,
+            }
+
+        import_result = await self.import_shared_media_async(
+            media_keys=scraped.media_keys,
+            auth_key=scraped.auth_key,
+            album_key=scraped.album_key,
+            timeout=timeout,
+        )
+
+        return {
+            "success": import_result.status == 2,
+            "status": import_result.status,
+            "status_message": import_result.status_message,
+            "is_processing": import_result.is_processing,
+            "scraped": scraped,
+            "media_count": len(scraped.media_keys),
+            "import_result": import_result,
+        }
+
 
 # Backwards-compatible alias
 GPMCClient = PhotosEngineClient
@@ -542,6 +827,89 @@ class NativeWebClient:
     def get_storage_quota(self) -> StorageQuota:
         """Retrieve Google Photos account storage quota and usage limits."""
         data = self._call(self._lib.GPWC_GetStorageQuota)
+        return StorageQuota(
+            usage_text=data.get("usage_text", ""),
+            used_display=data.get("used_display", ""),
+            total_display=data.get("total_display", ""),
+            used_percent=float(data.get("used_percent", 0.0)),
+            free_percent=float(data.get("free_percent", 0.0)),
+            used_bytes=int(data.get("used_bytes", 0)),
+            total_bytes=int(data.get("total_bytes", 0)),
+        )
+
+    async def _call_async(self, func, *args, timeout: Optional[float] = None) -> Any:
+        """Call a Go CGo async function on WebClient using native goroutines and asyncio.Future."""
+        _setup_async_lib(self._lib)
+        manager = _get_async_manager()
+        callback_id, future = manager.register_request(self._lib)
+        timeout_ms = int(timeout * 1000) if timeout else 0
+        func(self._handle, *args, ctypes.c_longlong(timeout_ms), ctypes.c_int64(callback_id))
+        return await future
+
+    @classmethod
+    async def check_status_async(cls, cookies: str, dll_path: Optional[str] = None, timeout: Optional[float] = None) -> CookieStatus:
+        """Perform cookie verification asynchronously using native Go goroutines."""
+        lib_path = dll_path or _get_lib_path()
+        lib = ctypes.CDLL(lib_path)
+        _setup_async_lib(lib)
+        manager = _get_async_manager()
+        callback_id, future = manager.register_request(lib)
+        timeout_ms = int(timeout * 1000) if timeout else 0
+        lib.GPWC_CheckStatus_Async(cookies.encode("utf-8"), ctypes.c_longlong(timeout_ms), ctypes.c_int64(callback_id))
+        try:
+            data = await future
+            return CookieStatus(
+                valid=data.get("valid", False),
+                account=data.get("account"),
+                message=data.get("message", ""),
+            )
+        except Exception as exc:
+            return CookieStatus(valid=False, message=str(exc))
+
+    async def get_download_url_async(self, media_key: str, timeout: Optional[float] = None) -> DownloadInfo:
+        """Retrieve direct download URL asynchronously using Go goroutines."""
+        data = await self._call_async(self._lib.GPWC_GetDownloadURL_Async, media_key.encode("utf-8"), timeout=timeout)
+        return DownloadInfo(
+            media_key=data.get("media_key", media_key),
+            download_url=data.get("download_url", ""),
+            dedup_key=data.get("dedup_key", ""),
+        )
+
+    async def import_from_drive_async(
+        self,
+        drive_file_id: str,
+        mime_type: str = "video/*",
+        cleanup: bool = False,
+        timeout: Optional[float] = None,
+    ) -> DriveImportResult:
+        """Import Google Drive file to Photos asynchronously using Go goroutines."""
+        data = await self._call_async(
+            self._lib.GPWC_ImportFromDrive_Async,
+            drive_file_id.encode("utf-8"),
+            mime_type.encode("utf-8"),
+            1 if cleanup else 0,
+            timeout=timeout,
+        )
+        return DriveImportResult(
+            drive_file_id=data.get("drive_file_id", drive_file_id),
+            media_key=data.get("media_key", ""),
+            dedup_key=data.get("dedup_key", ""),
+            download_url=data.get("download_url"),
+        )
+
+    async def create_share_link_async(self, media_key: str, timeout: Optional[float] = None) -> PublicShareLink:
+        """Create public photos.app.goo.gl link asynchronously using Go goroutines."""
+        data = await self._call_async(self._lib.GPWC_CreateShareLink_Async, media_key.encode("utf-8"), timeout=timeout)
+        return PublicShareLink(
+            share_url=data.get("share_url", ""),
+            envelope_key=data.get("envelope_key", ""),
+            auth_key=data.get("auth_key", ""),
+            media_keys=[media_key],
+        )
+
+    async def get_storage_quota_async(self, timeout: Optional[float] = None) -> StorageQuota:
+        """Retrieve Google Photos storage quota asynchronously using Go goroutines."""
+        data = await self._call_async(self._lib.GPWC_GetStorageQuota_Async, timeout=timeout)
         return StorageQuota(
             usage_text=data.get("usage_text", ""),
             used_display=data.get("used_display", ""),

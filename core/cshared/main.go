@@ -2,6 +2,14 @@ package main
 
 /*
 #include <stdlib.h>
+
+typedef void (*GPMC_AsyncCallback)(long long callback_id, const char* response_json, const char* error_str);
+
+static inline void invoke_gpmc_callback(GPMC_AsyncCallback cb, long long callback_id, const char* resp, const char* err) {
+    if (cb != NULL) {
+        cb(callback_id, resp, err);
+    }
+}
 */
 import "C"
 
@@ -27,7 +35,109 @@ var (
 	webClientsLock sync.RWMutex
 	webClientsMap  = make(map[uint64]*pe.WebClient)
 	nextWebHandle  uint64
+
+	callbacksLock  sync.RWMutex
+	asyncCallbacks = make(map[int64]C.GPMC_AsyncCallback)
+	nextCallbackID int64
+
+	requestsLock   sync.RWMutex
+	activeRequests = make(map[int64]context.CancelFunc)
 )
+
+//export GPMC_RegisterCallback
+func GPMC_RegisterCallback(cb C.GPMC_AsyncCallback) C.longlong {
+	id := atomic.AddInt64(&nextCallbackID, 1)
+	callbacksLock.Lock()
+	asyncCallbacks[id] = cb
+	callbacksLock.Unlock()
+	return C.longlong(id)
+}
+
+//export GPMC_UnregisterCallback
+func GPMC_UnregisterCallback(callbackID C.longlong) {
+	callbacksLock.Lock()
+	delete(asyncCallbacks, int64(callbackID))
+	callbacksLock.Unlock()
+
+	requestsLock.Lock()
+	delete(activeRequests, int64(callbackID))
+	requestsLock.Unlock()
+}
+
+//export GPMC_CancelRequest
+func GPMC_CancelRequest(callbackID C.longlong) {
+	requestsLock.Lock()
+	cancel, ok := activeRequests[int64(callbackID)]
+	if ok {
+		delete(activeRequests, int64(callbackID))
+	}
+	requestsLock.Unlock()
+	if ok && cancel != nil {
+		cancel()
+	}
+}
+
+func getCallback(id int64) C.GPMC_AsyncCallback {
+	callbacksLock.RLock()
+	defer callbacksLock.RUnlock()
+	return asyncCallbacks[id]
+}
+
+func registerActiveRequest(id int64, cancel context.CancelFunc) {
+	requestsLock.Lock()
+	activeRequests[id] = cancel
+	requestsLock.Unlock()
+}
+
+func unregisterActiveRequest(id int64) {
+	requestsLock.Lock()
+	delete(activeRequests, id)
+	requestsLock.Unlock()
+}
+
+func dispatchAsync(callbackID C.longlong, timeoutMs C.longlong, op func(ctx context.Context) (interface{}, error)) {
+	id := int64(callbackID)
+	cb := getCallback(id)
+	if cb == nil {
+		return
+	}
+
+	ctx, cancel := getContext(timeoutMs)
+	registerActiveRequest(id, cancel)
+
+	go func() {
+		defer func() {
+			cancel()
+			unregisterActiveRequest(id)
+		}()
+
+		data, err := op(ctx)
+
+		var cResp *C.char
+		var cErr *C.char
+
+		if err != nil {
+			errJSON, _ := json.Marshal(map[string]interface{}{
+				"success": false,
+				"error":   err.Error(),
+			})
+			cErr = C.CString(string(errJSON))
+			defer C.free(unsafe.Pointer(cErr))
+		} else {
+			respJSON, _ := json.Marshal(map[string]interface{}{
+				"success": true,
+				"data":    data,
+			})
+			cResp = C.CString(string(respJSON))
+			defer C.free(unsafe.Pointer(cResp))
+		}
+
+		currentCb := getCallback(id)
+		if currentCb != nil {
+			C.invoke_gpmc_callback(currentCb, C.longlong(id), cResp, cErr)
+		}
+	}()
+}
 
 func registerWebClient(c *pe.WebClient) uint64 {
 	h := atomic.AddUint64(&nextWebHandle, 1)
@@ -414,6 +524,199 @@ func GPMC_ScrapeShareURL(cURL *C.char, timeoutMs C.longlong) *C.char {
 //export GPMC_FreeString
 func GPMC_FreeString(str *C.char) {
 	C.free(unsafe.Pointer(str))
+}
+
+// ──────────────────────────── Asynchronous Exports ────────────────────────────
+
+//export GPMC_GetToken_Async
+func GPMC_GetToken_Async(handle C.ulonglong, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getClient(uint64(handle))
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("client handle not found")
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return client.GetToken(ctx)
+	})
+}
+
+//export GPMC_GetDownloadURL_Async
+func GPMC_GetDownloadURL_Async(handle C.ulonglong, cMediaKey *C.char, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getClient(uint64(handle))
+	mediaKey := C.GoString(cMediaKey)
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("client handle not found")
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return client.GetDownloadURL(ctx, mediaKey)
+	})
+}
+
+//export GPMC_CreateShareLink_Async
+func GPMC_CreateShareLink_Async(handle C.ulonglong, cMediaKeysJSON *C.char, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getClient(uint64(handle))
+	keysJSON := C.GoString(cMediaKeysJSON)
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("client handle not found")
+		})
+		return
+	}
+	var mediaKeys []string
+	if err := json.Unmarshal([]byte(keysJSON), &mediaKeys); err != nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, err
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return client.CreateShareLink(ctx, mediaKeys)
+	})
+}
+
+//export GPMC_DeletePermanently_Async
+func GPMC_DeletePermanently_Async(handle C.ulonglong, cDedupKey *C.char, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getClient(uint64(handle))
+	dedupKey := C.GoString(cDedupKey)
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("client handle not found")
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		err := client.DeletePermanently(ctx, dedupKey)
+		return true, err
+	})
+}
+
+//export GPMC_DeleteByMediaKey_Async
+func GPMC_DeleteByMediaKey_Async(handle C.ulonglong, cMediaKey *C.char, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getClient(uint64(handle))
+	mediaKey := C.GoString(cMediaKey)
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("client handle not found")
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		err := client.DeleteByMediaKey(ctx, mediaKey)
+		return true, err
+	})
+}
+
+//export GPMC_ImportSharedMedia_Async
+func GPMC_ImportSharedMedia_Async(handle C.ulonglong, cMediaKeysJSON *C.char, cAuthKey *C.char, cAlbumKey *C.char, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getClient(uint64(handle))
+	keysJSON := C.GoString(cMediaKeysJSON)
+	authKey := C.GoString(cAuthKey)
+	albumKey := C.GoString(cAlbumKey)
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("client handle not found")
+		})
+		return
+	}
+	var mediaKeys []string
+	if err := json.Unmarshal([]byte(keysJSON), &mediaKeys); err != nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, err
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return client.ImportSharedMedia(ctx, mediaKeys, authKey, albumKey)
+	})
+}
+
+//export GPMC_ScrapeShareURL_Async
+func GPMC_ScrapeShareURL_Async(cURL *C.char, timeoutMs C.longlong, callbackID C.longlong) {
+	targetURL := C.GoString(cURL)
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return pe.ScrapeShareURL(ctx, targetURL)
+	})
+}
+
+//export GPWC_CheckStatus_Async
+func GPWC_CheckStatus_Async(cCookieData *C.char, timeoutMs C.longlong, callbackID C.longlong) {
+	raw := C.GoString(cCookieData)
+	cookie, err := pe.ParseCookies(raw)
+	if err != nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, err
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return pe.CheckCookieStatus(cookie)
+	})
+}
+
+//export GPWC_GetDownloadURL_Async
+func GPWC_GetDownloadURL_Async(handle C.ulonglong, cMediaKey *C.char, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getWebClient(uint64(handle))
+	mediaKey := C.GoString(cMediaKey)
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("web client handle not found")
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return client.GetDownloadURL(mediaKey)
+	})
+}
+
+//export GPWC_ImportFromDrive_Async
+func GPWC_ImportFromDrive_Async(handle C.ulonglong, cDriveID *C.char, cMimeType *C.char, cleanup C.int, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getWebClient(uint64(handle))
+	driveID := C.GoString(cDriveID)
+	mimeType := C.GoString(cMimeType)
+	cleanupBool := cleanup != 0
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("web client handle not found")
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return client.ImportFromDrive(driveID, mimeType, cleanupBool)
+	})
+}
+
+//export GPWC_CreateShareLink_Async
+func GPWC_CreateShareLink_Async(handle C.ulonglong, cMediaKey *C.char, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getWebClient(uint64(handle))
+	mediaKey := C.GoString(cMediaKey)
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("web client handle not found")
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return client.CreateShareLink(mediaKey)
+	})
+}
+
+//export GPWC_GetStorageQuota_Async
+func GPWC_GetStorageQuota_Async(handle C.ulonglong, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getWebClient(uint64(handle))
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("web client handle not found")
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return client.GetStorageQuota()
+	})
 }
 
 func main() {}

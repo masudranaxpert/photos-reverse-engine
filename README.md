@@ -97,9 +97,44 @@ reset_res = web_client.reset_account()
 print(f"Account Reset: {reset_res.total_deleted} items removed, trash emptied: {reset_res.trash_emptied}")
 ```
 
+### 4. Native Async Python Usage (Non-blocking Go Goroutines)
+
+Just like [`httpcloak`](https://github.com/sardanioss/httpcloak), `photos_engine` includes a native C-ABI callback bridge (`_AsyncCallbackManager`) that runs operations inside Go goroutines and signals Python's `asyncio` event loop via thread-safe callbacks without locking Python's GIL or blocking the event loop:
+
+```python
+import asyncio
+from photos_engine import NativeWebClient, PhotosEngineClient
+
+async def main():
+    # 1. Native async session status check (runs inside Go goroutine)
+    status = await NativeWebClient.check_status_async("OSID=...; SID=...")
+    print(f"Session valid: {status.valid}, Account: {status.account}")
+
+    # 2. Native async Drive Import
+    client = NativeWebClient(cookies="OSID=...; SID=...")
+    result = await client.import_from_drive_async(
+        drive_file_id="173o1kBve_RiXmI2ECCrfgRT91KG62Mz3",
+        mime_type="video/mp4"
+    )
+    print(f"Imported Media Key: {result.media_key}")
+
+    # 3. Native async Share Link Generation
+    link = await client.create_share_link_async(result.media_key)
+    print(f"Public Link: {link.share_url}")
+
+    # 4. Native async Storage Quota check
+    quota = await client.get_storage_quota_async()
+    print(f"Used: {quota.used_display} / {quota.total_display}")
+
+    client.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
 ---
 
-### 4. Golang Usage
+### 5. Golang Usage
 
 Add the package to your Go project:
 

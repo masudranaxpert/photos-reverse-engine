@@ -196,13 +196,20 @@ Client(auth_data: Optional[str] = None, lib_path: Optional[str] = None)
 | Method | Return Type | Description |
 | :--- | :--- | :--- |
 | `client.get_token()` | `str` | Fetch active OAuth2 Bearer token. |
+| `await client.get_token_async()` | `str` | Fetch OAuth2 Bearer token asynchronously via native Go Goroutine. |
 | `client.create_share_link(media_keys)` | `PublicShareLink` | Create public short link for media keys. |
+| `await client.create_share_link_async(...)` | `PublicShareLink` | Create public short link asynchronously via native Go Goroutine. |
 | `client.get_download_url(media_key)` | `DownloadInfo` | Get direct stream download URL and metadata. |
+| `await client.get_download_url_async(...)` | `DownloadInfo` | Get direct stream download URL asynchronously via native Go Goroutine. |
 | `client.import_share_url(share_url)` | `dict` | Scrape and save shared link with Pixel XL spoofing. |
+| `await client.import_share_url_async(...)` | `dict` | Scrape and save shared link asynchronously via native Go Goroutine. |
 | `client.import_shared_media(...)` | `SaveResult` | Low-level import of media keys with auth key. |
+| `await client.import_shared_media_async(...)`| `SaveResult` | Low-level import of media keys asynchronously via native Go Goroutine. |
 | `client.delete_by_media_key(media_key)`| `bool` | Permanently delete media item. |
+| `await client.delete_by_media_key_async(...)`| `bool` | Permanently delete media item asynchronously via native Go Goroutine. |
 | `client.move_to_trash(dedup_key)` | `bool` | Move item to trash via base64 dedup key. |
 | `client.delete_permanently(dedup_key)`| `bool` | Permanently delete item from trash. |
+| `await client.delete_permanently_async(...)` | `bool` | Permanently delete item from trash asynchronously via native Go Goroutine. |
 | `client.find_media_by_hash(sha1_hash)` | `ExistResult` | Check if 20-byte SHA-1 hash exists in library. |
 | `client.is_file_in_library(file_path)` | `ExistResult` | Check local file existence by hash. |
 
@@ -362,12 +369,17 @@ Both `NativeWebClient` and `WebClient` reference the same class.
 | Method | Return Type | Description |
 | :--- | :--- | :--- |
 | `NativeWebClient.check_status(cookies)` | [`CookieStatus`](#cookiestatus) | Stateless cookie validation and account verification. |
+| `await NativeWebClient.check_status_async(...)` | [`CookieStatus`](#cookiestatus) | Stateless cookie validation asynchronously via native Go Goroutine. |
 | `NativeWebClient.from_blob(blob)` | `NativeWebClient` | Restore client from a serialized session blob. |
 | [`client.import_from_drive()`](#import_from_drive) | [`DriveImportResult`](#driveimportresult) | Import single Drive file via `SusGud` RPC (with auto quota error). |
+| `await client.import_from_drive_async(...)` | [`DriveImportResult`](#driveimportresult) | Import Drive file asynchronously via native Go Goroutine. |
 | [`client.batch_import_from_drive()`](#batch_import_from_drive) | [`DriveBatchImportResult`](#drivebatchimportresult) | Batch import Drive files with automatic quota full detection. |
 | [`client.get_storage_quota()`](#get_storage_quota) | [`StorageQuota`](#storagequota) | Fetch storage usage, used/free percentages, and byte limits. |
+| `await client.get_storage_quota_async()` | [`StorageQuota`](#storagequota) | Fetch storage quota asynchronously via native Go Goroutine. |
 | [`client.get_download_url()`](#get_download_url-web) | [`DownloadInfo`](#downloadinfo) | Direct download stream URL and dedup key via `VrseUb` RPC. |
+| `await client.get_download_url_async(...)` | [`DownloadInfo`](#downloadinfo) | Direct download stream URL asynchronously via native Go Goroutine. |
 | [`client.create_share_link()`](#create_share_link-web) | [`PublicShareLink`](#publicsharelink) | Create public `photos.app.goo.gl` short link via `SFKp8c` RPC. |
+| `await client.create_share_link_async(...)` | [`PublicShareLink`](#publicsharelink) | Create public share link asynchronously via native Go Goroutine. |
 | [`client.reset_account()`](#reset_account) | [`AccountResetResult`](#accountresetresult) | Wipe entire library: move all items to trash and empty trash bin. |
 | [`client.export_session_blob()`](#export_session_blob) | `bytes` | Export binary session state for database persistence. |
 | [`client.export_cookies()`](#export_cookies) | `Dict[str, str]` | Export current live cookies from session jar. |
