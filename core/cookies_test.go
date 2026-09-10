@@ -173,3 +173,39 @@ func TestHttpcloakSession(t *testing.T) {
 	}
 }
 
+func TestParseStorageQuotaHTML(t *testing.T) {
+	snippet := `
+<div class="XCxRFf" style="width:61.7%;"></div>
+<div class="DFG23b" style="width:38.3%;"></div>
+</div>
+<div class="nXkqdd"><a class="zWKF8d" jscontroller="XC0hee" jsaction="click:RySO6d;" href="./quotamanagement" data-location="11" jslog="60969; track:click">9.3 GB of 15 GB used</a></div>
+</div>
+<div jscontroller="HRlsHd" jsaction="S2Nv3c:fJTaH"></div>
+</div><c-data id="i13" jsdata="`
+
+	quota, err := parseStorageQuotaHTML(snippet)
+	if err != nil {
+		t.Fatalf("parseStorageQuotaHTML failed: %v", err)
+	}
+
+	if quota.UsageText != "9.3 GB of 15 GB used" {
+		t.Errorf("expected '9.3 GB of 15 GB used', got '%s'", quota.UsageText)
+	}
+	if quota.UsedDisplay != "9.3 GB" {
+		t.Errorf("expected '9.3 GB', got '%s'", quota.UsedDisplay)
+	}
+	if quota.TotalDisplay != "15 GB" {
+		t.Errorf("expected '15 GB', got '%s'", quota.TotalDisplay)
+	}
+	if quota.UsedPercent != 61.7 {
+		t.Errorf("expected 61.7, got %f", quota.UsedPercent)
+	}
+	if quota.FreePercent != 38.3 {
+		t.Errorf("expected 38.3, got %f", quota.FreePercent)
+	}
+	if quota.TotalBytes <= 0 || quota.UsedBytes <= 0 {
+		t.Errorf("expected positive byte values, got used=%d, total=%d", quota.UsedBytes, quota.TotalBytes)
+	}
+}
+
+

@@ -192,6 +192,36 @@ def _cmd_drive_import(args):
         client.close()
 
 
+def _cmd_quota(args):
+    """Fetch and display Google Photos account storage quota."""
+    cookie_path = Path(args.cookies_file)
+    if not cookie_path.exists():
+        print(f"Error: Cookies file not found: {args.cookies_file}", file=sys.stderr)
+        sys.exit(1)
+
+    cookies_text = cookie_path.read_text(encoding="utf-8")
+    client = NativeWebClient(cookies=cookies_text)
+    try:
+        quota = client.get_storage_quota()
+        if args.json:
+            print(json.dumps({
+                "usage_text": quota.usage_text,
+                "used_display": quota.used_display,
+                "total_display": quota.total_display,
+                "used_percent": quota.used_percent,
+                "free_percent": quota.free_percent,
+                "used_bytes": quota.used_bytes,
+                "total_bytes": quota.total_bytes,
+            }, indent=2))
+        else:
+            print(f"Storage Quota : {quota.usage_text}")
+            print(f"Used Space    : {quota.used_display} ({quota.used_percent}%)")
+            print(f"Total Space   : {quota.total_display}")
+            print(f"Free Space    : {quota.free_percent}% remaining")
+    finally:
+        client.close()
+
+
 def main():
     """Main CLI entry point."""
     common_parser = argparse.ArgumentParser(add_help=False)
@@ -251,6 +281,10 @@ def main():
     p_di.add_argument("--session", "-s", default="default", help="Session ID (default: 'default')")
     p_di.add_argument("--cleanup", action="store_true", help="Move to trash and permanently delete after obtaining download URL")
 
+    # Command: quota
+    p_quota = subparsers.add_parser("quota", help="Fetch Google Photos account storage quota and limits", parents=[common_parser])
+    p_quota.add_argument("--cookies-file", "-c", default="cookies.txt", help="Path to cookies.txt (Netscape or JSON)")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -266,6 +300,7 @@ def main():
         "check": _cmd_check,
         "cookies-check": _cmd_cookies_check,
         "drive-import": _cmd_drive_import,
+        "quota": _cmd_quota,
     }
 
     try:

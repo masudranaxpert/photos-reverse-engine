@@ -17,6 +17,7 @@ from .models import (
     SaveResult,
     ScrapedShare,
     ShareInfo,
+    StorageQuota,
 )
 
 # Standard aliases
@@ -90,4 +91,5 @@ __all__ = [
     "PublicShareLink",
     "CookieStatus",
     "DriveImportResult",
+    "StorageQuota",
 ]

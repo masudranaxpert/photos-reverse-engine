@@ -79,3 +79,15 @@ class DriveImportResult:
     download_url: Optional[str] = None
     filename: str = ""
 
+
+@dataclass
+class StorageQuota:
+    usage_text: str = ""
+    used_display: str = ""
+    total_display: str = ""
+    used_percent: float = 0.0
+    free_percent: float = 0.0
+    used_bytes: int = 0
+    total_bytes: int = 0
+
+

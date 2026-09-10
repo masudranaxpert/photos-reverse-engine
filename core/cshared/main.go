@@ -357,6 +357,17 @@ func GPWC_CreateShareLink(handle C.ulonglong, cMediaKey *C.char) *C.char {
 	return jsonResponse(link, err)
 }
 
+//export GPWC_GetStorageQuota
+func GPWC_GetStorageQuota(handle C.ulonglong) *C.char {
+	client := getWebClient(uint64(handle))
+	if client == nil {
+		return jsonResponse(nil, errors.New("client handle not found"))
+	}
+	quota, err := client.GetStorageQuota()
+	return jsonResponse(quota, err)
+}
+
+
 //export GPMC_ScrapeShareURL
 func GPMC_ScrapeShareURL(cURL *C.char, timeoutMs C.longlong) *C.char {
 	targetURL := C.GoString(cURL)

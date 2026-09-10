@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -445,3 +447,129 @@ func (c *WebClient) EmptyTrash() error {
 	_, err := c.SendBatchexecute("e2FP6c", payloadData, 30*time.Second)
 	return err
 }
+
+// GetStorageQuota fetches storage quota information from Google Photos quota management.
+func (c *WebClient) GetStorageQuota() (*StorageQuota, error) {
+	// First check /quotamanagement endpoint
+	quotaURL := "https://photos.google.com/quotamanagement"
+	resp, err := c.session.Get(context.Background(), quotaURL)
+	if err == nil {
+		defer resp.Close()
+		if resp.StatusCode == 200 {
+			bodyStr, _ := resp.Text()
+			if quota, qErr := parseStorageQuotaHTML(bodyStr); qErr == nil {
+				return quota, nil
+			}
+		}
+	}
+
+	// Fallback to main page https://photos.google.com/ which also contains quota link and bars in sidebar
+	mainURL := fmt.Sprintf("https://photos.google.com/?_t=%d", time.Now().Unix())
+	respMain, err := c.session.Get(context.Background(), mainURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch Google Photos storage quota: %w", err)
+	}
+	defer respMain.Close()
+
+	if respMain.StatusCode != 200 {
+		return nil, fmt.Errorf("photos.google.com returned status %d", respMain.StatusCode)
+	}
+
+	bodyStr, err := respMain.Text()
+	if err != nil {
+		return nil, err
+	}
+
+	return parseStorageQuotaHTML(bodyStr)
+}
+
+// parseStorageQuotaHTML extracts storage quota and percentage bars from Google Photos HTML.
+func parseStorageQuotaHTML(htmlStr string) (*StorageQuota, error) {
+	quota := &StorageQuota{}
+
+	// 1. Extract usage text from <a href="./quotamanagement" ...>9.3 GB of 15 GB used</a>
+	aRe := regexp.MustCompile(`href=["'](?:\./)?quotamanagement[^"']*["'][^>]*>([^<]+)</a>`)
+	if m := aRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+		quota.UsageText = strings.TrimSpace(m[1])
+	}
+
+	if quota.UsageText == "" {
+		fallbackRe := regexp.MustCompile(`([0-9.,]+\s*(?:KB|MB|GB|TB))\s+of\s+([0-9.,]+\s*(?:KB|MB|GB|TB))\s+used`)
+		if m := fallbackRe.FindStringSubmatch(htmlStr); len(m) > 0 {
+			quota.UsageText = strings.TrimSpace(m[0])
+		}
+	}
+
+	// 2. Parse used and total display strings (e.g. "9.3 GB" and "15 GB")
+	textPartsRe := regexp.MustCompile(`([0-9.,]+\s*(?:KB|MB|GB|TB))\s+of\s+([0-9.,]+\s*(?:KB|MB|GB|TB))`)
+	if m := textPartsRe.FindStringSubmatch(quota.UsageText); len(m) > 2 {
+		quota.UsedDisplay = strings.TrimSpace(m[1])
+		quota.TotalDisplay = strings.TrimSpace(m[2])
+		quota.UsedBytes = parseSizeToBytes(quota.UsedDisplay)
+		quota.TotalBytes = parseSizeToBytes(quota.TotalDisplay)
+	}
+
+	// 3. Extract used progress percentage from class="XCxRFf" style="width:61.7%;"
+	usedBarRe := regexp.MustCompile(`class=["'][^"']*XCxRFf[^"']*["'][^>]*style=["'][^"']*width:\s*([0-9.]+)%`)
+	if m := usedBarRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+		if val, err := strconv.ParseFloat(m[1], 64); err == nil {
+			quota.UsedPercent = val
+		}
+	}
+
+	// 4. Extract free progress percentage from class="DFG23b" style="width:38.3%;"
+	freeBarRe := regexp.MustCompile(`class=["'][^"']*DFG23b[^"']*["'][^>]*style=["'][^"']*width:\s*([0-9.]+)%`)
+	if m := freeBarRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+		if val, err := strconv.ParseFloat(m[1], 64); err == nil {
+			quota.FreePercent = val
+		}
+	}
+
+	// Calculate missing percentages if one is known
+	if quota.UsedPercent > 0 && quota.FreePercent == 0 {
+		quota.FreePercent = math.Round((100.0-quota.UsedPercent)*10) / 10
+	} else if quota.FreePercent > 0 && quota.UsedPercent == 0 {
+		quota.UsedPercent = math.Round((100.0-quota.FreePercent)*10) / 10
+	} else if quota.UsedPercent == 0 && quota.TotalBytes > 0 {
+		quota.UsedPercent = math.Round((float64(quota.UsedBytes)/float64(quota.TotalBytes))*1000) / 10
+		quota.FreePercent = math.Round((100.0-quota.UsedPercent)*10) / 10
+	}
+
+	if quota.UsageText == "" && quota.UsedPercent == 0 && quota.TotalBytes == 0 {
+		return nil, errors.New("storage quota elements not found in Google Photos response")
+	}
+
+	return quota, nil
+}
+
+// parseSizeToBytes converts strings like "9.3 GB" or "15 GB" to byte count.
+func parseSizeToBytes(sizeStr string) int64 {
+	sizeStr = strings.TrimSpace(strings.ToUpper(sizeStr))
+	re := regexp.MustCompile(`^([0-9.,]+)\s*([A-Z]+)$`)
+	match := re.FindStringSubmatch(sizeStr)
+	if len(match) < 3 {
+		return 0
+	}
+	numStr := strings.ReplaceAll(match[1], ",", "")
+	num, err := strconv.ParseFloat(numStr, 64)
+	if err != nil {
+		return 0
+	}
+
+	var multiplier float64 = 1
+	switch match[2] {
+	case "B":
+		multiplier = 1
+	case "KB":
+		multiplier = 1024
+	case "MB":
+		multiplier = 1024 * 1024
+	case "GB":
+		multiplier = 1024 * 1024 * 1024
+	case "TB":
+		multiplier = 1024 * 1024 * 1024 * 1024
+	}
+
+	return int64(num * multiplier)
+}
+

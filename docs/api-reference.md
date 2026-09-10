@@ -277,11 +277,25 @@ class DriveImportResult:
     download_url: Optional[str] # Direct stream download URL
 ```
 
+### `StorageQuota`
+
+```python
+@dataclass
+class StorageQuota:
+    usage_text: str    # Human-readable string, e.g. "9.3 GB of 15 GB used"
+    used_display: str  # Display string of used space, e.g. "9.3 GB"
+    total_display: str # Display string of total space, e.g. "15 GB"
+    used_percent: float# Used percentage, e.g. 61.7
+    free_percent: float# Free percentage, e.g. 38.3
+    used_bytes: int    # Used storage in bytes
+    total_bytes: int   # Total storage limit in bytes
+```
+
 ---
 
 ## Web Client & Cookies API
 
-For cookie-authenticated web sessions, Google Drive to Photos imports, and session database persistence.
+For cookie-authenticated web sessions, Google Drive to Photos imports, storage quota inspection, and session database persistence.
 
 ### `NativeWebClient` (Go Core DLL Powered)
 
@@ -295,6 +309,11 @@ status = NativeWebClient.check_status("cookies_data_here")
 
 # 2. Stateful client with compiled Go core performance
 with NativeWebClient(cookies="cookies_data_here") as client:
+    # Check account storage quota
+    quota = client.get_storage_quota()
+    print(f"Storage: {quota.usage_text} ({quota.used_percent}% used)")
+
+    # Import file from Google Drive
     result = client.import_from_drive("GOOGLE_DRIVE_FILE_ID", cleanup=True)
     print("Download URL:", result.download_url)
 ```

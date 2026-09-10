@@ -63,4 +63,16 @@ type ScrapedShare struct {
 	MediaKeys []string `json:"media_keys"`
 }
 
+// StorageQuota contains Google account storage usage and quota limits.
+type StorageQuota struct {
+	UsageText    string  `json:"usage_text"`    // e.g. "9.3 GB of 15 GB used"
+	UsedDisplay  string  `json:"used_display"`  // e.g. "9.3 GB"
+	TotalDisplay string  `json:"total_display"` // e.g. "15 GB"
+	UsedPercent  float64 `json:"used_percent"`  // e.g. 61.7
+	FreePercent  float64 `json:"free_percent"`  // e.g. 38.3
+	UsedBytes    int64   `json:"used_bytes"`    // in bytes
+	TotalBytes   int64   `json:"total_bytes"`   // in bytes
+}
+
+
 

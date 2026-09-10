@@ -22,6 +22,7 @@
 - **Public Share Link Creation**: Generates official `https://photos.app.goo.gl/...` short share links for single or multiple media items.
 - **Unlimited Pixel XL Backup Spoofing**: Simulates Google Pixel XL hardware parameters and headers to save and import shared media with unlimited original quality backup status.
 - **Original Quality Stream Downloads**: Resolves direct streaming and download URLs, filenames, exact byte sizes, and SHA-1 checksums.
+- **Account Storage Quota Inspection**: Parses Google Photos storage usage (`quotamanagement`), breakdown percentages, used/total space, and byte limits.
 - **Fast Deduplication Pre-Check**: Checks if a local file already exists in your Google Photos library via SHA-1 hash before re-uploading.
 - **Permanent Deletion**: Two-step expunge protocol (MoveToTrash followed by permanent deletion) using raw deduplication keys.
 - **Unified CLI & Python API**: Full programmatic Python API alongside a fast, interactive command-line interface (`photos-engine`).
@@ -74,6 +75,11 @@ print("Exists in library?", check.exists)
 # 6. Permanently Delete Media Item
 success = photos_engine.delete_by_media_key("AF1QipM...")
 print("Deleted:", success)
+
+# 7. Check Google Photos Storage Quota
+web_client = photos_engine.NativeWebClient(cookies=open("cookies.txt").read())
+quota = web_client.get_storage_quota()
+print(f"Storage: {quota.usage_text} ({quota.used_percent}% used)")
 ```
 
 ---
@@ -165,6 +171,10 @@ photos-engine check video.mp4
 
 # Permanently delete an item
 photos-engine delete AF1QipM7Z...
+
+# Check Google Photos account storage quota
+photos-engine quota -c cookies.txt
+photos-engine quota -c cookies.txt --json
 ```
 
 ---

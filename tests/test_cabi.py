@@ -78,6 +78,19 @@ class TestCAbiFixes(unittest.TestCase):
             NativeWebClient.from_blob(b"not_a_valid_blob")
         self.assertIn("GPWC_CreateClientFromBlob failed", str(ctx.exception))
 
+    def test_gpwc_get_storage_quota_cabi(self):
+        """Verify GPWC_GetStorageQuota C-ABI export exists and returns expected error for invalid handle."""
+        self.lib.GPWC_GetStorageQuota.argtypes = [ctypes.c_ulonglong]
+        self.lib.GPWC_GetStorageQuota.restype = ctypes.c_void_p
+        raw_ptr = self.lib.GPWC_GetStorageQuota(99999999)
+        self.assertTrue(bool(raw_ptr))
+        json_str = ctypes.string_at(raw_ptr).decode("utf-8")
+        self.lib.GPMC_FreeString(raw_ptr)
+        res = json.loads(json_str)
+        self.assertFalse(res.get("success"))
+        self.assertIn("client handle not found", res.get("error", ""))
+
 
 if __name__ == "__main__":
     unittest.main()
+

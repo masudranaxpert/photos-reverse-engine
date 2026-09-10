@@ -162,3 +162,25 @@ Dedup Key     : qUqP5cyx...
 Download URL  : https://video-downloads.googleusercontent.com/...
 ```
 
+---
+
+### `quota`
+Fetches Google Photos account storage quota, breakdown percentages, used/total space, and byte limits.
+
+```bash
+# Fetch storage quota using default cookies.txt
+photos-engine quota
+
+# Specify custom cookies file and output JSON
+photos-engine quota --cookies-file /path/to/cookies.txt --json
+```
+
+**Example Output**:
+```text
+Storage Quota : 9.3 GB of 15 GB used
+Used Space    : 9.3 GB (61.7%)
+Total Space   : 15 GB
+Free Space    : 38.3% remaining
+```
+
+

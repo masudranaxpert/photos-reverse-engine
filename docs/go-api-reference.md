@@ -270,7 +270,13 @@ func main() {
         log.Fatalf("Failed to initialize web client: %v", err)
     }
 
-    // 4. Import Google Drive file directly into Google Photos
+    // 4. Check Google Photos Account Storage Quota
+    quota, err := webClient.GetStorageQuota()
+    if err == nil {
+        fmt.Printf("Storage: %s (%.1f%% used, %.1f%% free)\n", quota.UsageText, quota.UsedPercent, quota.FreePercent)
+    }
+
+    // 5. Import Google Drive file directly into Google Photos
     driveFileID := "1A2B3C4D5E6F7G8H9I0J"
     result, err := webClient.ImportFromDrive(driveFileID, "video/*", true)
     if err != nil {
@@ -295,6 +301,20 @@ type DownloadInfo struct {
     FileSize    int64  `json:"file_size"`
     SHA1Hex     string `json:"sha1_hex"`
     DedupKey    string `json:"dedup_key"`
+}
+```
+
+### `StorageQuota`
+
+```go
+type StorageQuota struct {
+    UsageText    string  `json:"usage_text"`    // e.g. "9.3 GB of 15 GB used"
+    UsedDisplay  string  `json:"used_display"`  // e.g. "9.3 GB"
+    TotalDisplay string  `json:"total_display"` // e.g. "15 GB"
+    UsedPercent  float64 `json:"used_percent"`  // e.g. 61.7
+    FreePercent  float64 `json:"free_percent"`  // e.g. 38.3
+    UsedBytes    int64   `json:"used_bytes"`    // in bytes
+    TotalBytes   int64   `json:"total_bytes"`   // in bytes
 }
 ```
 

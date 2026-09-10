@@ -18,6 +18,7 @@ from .models import (
     SaveResult,
     ScrapedShare,
     ShareInfo,
+    StorageQuota,
 )
 
 
@@ -521,6 +522,20 @@ class NativeWebClient:
             auth_key=data.get("auth_key", ""),
             media_keys=[media_key],
         )
+
+    def get_storage_quota(self) -> StorageQuota:
+        """Retrieve Google Photos account storage quota and usage limits."""
+        data = self._call(self._lib.GPWC_GetStorageQuota)
+        return StorageQuota(
+            usage_text=data.get("usage_text", ""),
+            used_display=data.get("used_display", ""),
+            total_display=data.get("total_display", ""),
+            used_percent=float(data.get("used_percent", 0.0)),
+            free_percent=float(data.get("free_percent", 0.0)),
+            used_bytes=int(data.get("used_bytes", 0)),
+            total_bytes=int(data.get("total_bytes", 0)),
+        )
+
 
     @classmethod
     def from_blob(cls, blob: Union[bytes, str], dll_path: Optional[str] = None) -> "NativeWebClient":
