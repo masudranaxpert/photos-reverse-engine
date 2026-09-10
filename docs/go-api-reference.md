@@ -333,6 +333,23 @@ type StorageQuota struct {
 }
 ```
 
+### `DriveImportItemResult`
+
+```go
+type DriveImportItemResult struct {
+    DriveFileID string `json:"drive_file_id"`
+    MediaKey    string `json:"media_key"`
+    DedupKey    string `json:"dedup_key"`
+    DownloadURL string `json:"download_url,omitempty"`
+    Width       int    `json:"width,omitempty"`
+    Height      int    `json:"height,omitempty"`
+    FileSize    int64  `json:"file_size,omitempty"`
+    Status      int    `json:"status"` // 0=Success, 1=Processing, 3=Unsupported/Rejected, 8=Quota Exceeded
+    Error       string `json:"error,omitempty"`
+    RawItem     string `json:"raw_item,omitempty"`
+}
+```
+
 ### `DriveBatchImportResult`
 
 ```go
@@ -342,6 +359,7 @@ type DriveBatchImportResult struct {
     Items         []DriveImportItemResult `json:"items"`
     QuotaExceeded bool                    `json:"quota_exceeded"`
     ErrorMessage  string                  `json:"error_message,omitempty"`
+    RawResponse   string                  `json:"raw_response,omitempty"`
 }
 ```
 

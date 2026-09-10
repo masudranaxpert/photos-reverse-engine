@@ -310,9 +310,9 @@ class DriveImportItemResult:
     download_url: Optional[str] # Direct download URL (if available)
     width: int = 0              # Media width in pixels
     height: int = 0             # Media height in pixels
-    file_size: int = 0          # Exact file size in bytes
-    status: int = 0             # Status code (0 = Success, 8 = Storage Quota Exceeded)
+    status: int = 0             # Status code (0 = Success, 1 = Processing, 3 = Unsupported/Rejected, 8 = Storage Quota Exceeded)
     error: str = ""             # Error description if failed
+    raw_item: Optional[str] = None # Raw JSON string from Google Photos RPC item tuple
 ```
 
 ### `StorageQuota`
@@ -334,11 +334,12 @@ class StorageQuota:
 ```python
 @dataclass
 class DriveBatchImportResult:
-    success_count: int               # Count of successfully imported items
-    failed_count: int                # Count of failed items
+    success_count: int                 # Count of successfully imported items
+    failed_count: int                  # Count of failed items
     items: List[DriveImportItemResult] # Individual item results
-    quota_exceeded: bool             # True if rejected due to storage quota full
-    error_message: str               # Detailed error description
+    quota_exceeded: bool               # True if rejected due to storage quota full
+    error_message: str                 # Detailed error description
+    raw_response: Optional[str] = None # Raw decoded JSON string of entire SusGud response
 ```
 
 ### `AccountResetResult`
@@ -763,5 +764,27 @@ sequenceDiagram
    - `client.import_from_drive(...)` detects the quota full error and raises `RuntimeError: STORAGE_QUOTA_EXCEEDED: Google Photos storage is full (PhotosWebImportDriveItemsFailure)`.
 4. **Proactive Inspection**:
    - Call `client.get_storage_quota()` before starting imports to inspect `used_percent` and available `free_percent`.
+
+#### Unsupported Format & Rejection Detection (Status Code 3)
+
+Google Photos inspects Drive file binary headers and MIME types. When attempting to import non-media files (such as `.rar`, `.zip`, `.exe`, or `.iso` archives), the `SusGud` batchexecute RPC rejects the file:
+
+1. **Protocol Payload**:
+   ```json
+   [[["1NNVzoBzBeAg4FIOPijqJHkgxWJPxBtC7", null, 3]]]
+   ```
+   * Index 0: Target Drive File ID
+   * Index 1: `null` (no media key or download URL generated)
+   * Index 2: `3` (Status Code 3 = File Rejected / Unsupported Format)
+
+2. **Batch Import Handling**:
+   * `result.raw_response` contains the full JSON string returned by Google Photos for transparent inspection.
+   * `item.status = 3` and `item.error = "Unsupported format or rejected by Google Photos (status 3)"`.
+   * `item.raw_item = "[\"<drive_id>\",null,3]"`.
+
+3. **Single Import Handling**:
+   * Calling `client.import_from_drive_async(...)` or `client.import_from_drive(...)` raises a clear `RuntimeError`:
+     `file rejected by Google Photos (status 3: unsupported format or non-media file): <drive_id>`
+
 
 
