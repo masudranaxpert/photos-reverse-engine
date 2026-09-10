@@ -246,9 +246,14 @@ class PublicShareLink:
 ```python
 @dataclass
 class SaveResult:
-    status: int           # Status code (2 = Success)
-    success: bool         # True if successfully saved
-    new_keys: List[str]   # Newly assigned media keys in user's library
+    original_keys: List[str]      # Original media keys requested
+    new_keys: List[str]           # Newly assigned media keys in user's library
+    status: int                   # Status code (2 = Success, 1 = Processing, 3 = Failed)
+    status_message: str           # Descriptive status message
+    is_success: bool              # True if status == 2
+    success: bool                 # Property alias for is_success
+    is_processing: bool           # True if media is still being transcoded (status == 1)
+    new_media_keys: List[str]     # Property alias for new_keys
 ```
 
 ### `ExistResult`

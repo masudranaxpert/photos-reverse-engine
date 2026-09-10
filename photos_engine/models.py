@@ -23,17 +23,41 @@ class ShareInfo:
     media_keys: List[str] = field(default_factory=list)
 
 
-@dataclass
+@dataclass(init=False)
 class SaveResult:
-    original_keys: List[str] = field(default_factory=list)
-    new_keys: List[str] = field(default_factory=list)
-    status: int = 0
-    status_message: str = ""
+    original_keys: List[str]
+    new_keys: List[str]
+    status: int
+    status_message: str
+
+    def __init__(
+        self,
+        original_keys: Optional[List[str]] = None,
+        new_keys: Optional[List[str]] = None,
+        status: int = 0,
+        status_message: str = "",
+        new_media_keys: Optional[List[str]] = None,
+        is_processing: Optional[bool] = None,
+        **kwargs,
+    ):
+        self.original_keys = original_keys or []
+        self.new_keys = new_keys if new_keys is not None else (new_media_keys or [])
+        self.status = status
+        self.status_message = status_message
+
+    @property
+    def new_media_keys(self) -> List[str]:
+        return self.new_keys
 
     @property
     def is_success(self) -> bool:
-        """True if successfully saved into library with new keys assigned."""
-        return self.status == 2 and len(self.new_keys) > 0
+        """True if successfully saved into library."""
+        return self.status == 2
+
+    @property
+    def success(self) -> bool:
+        """Backwards-compatible alias for is_success."""
+        return self.status == 2
 
     @property
     def is_processing(self) -> bool:

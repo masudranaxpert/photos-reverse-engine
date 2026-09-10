@@ -629,11 +629,21 @@ class PhotosEngineClient:
             album_key.encode("utf-8"),
             timeout=timeout,
         )
+        status = data.get("status", 0)
+        status_msg = data.get("status_message") or ""
+        if not status_msg:
+            if status == 2:
+                status_msg = "Successfully imported into library"
+            elif status == 1:
+                status_msg = "Media is still processing on Google Photos servers. Not ready for import yet."
+            else:
+                status_msg = f"Import completed with status {status}"
+
         return SaveResult(
-            status=data.get("status", 0),
-            status_message=data.get("status_message", ""),
-            new_media_keys=data.get("new_media_keys") or [],
-            is_processing=data.get("is_processing", False),
+            original_keys=data.get("original_keys") or media_keys,
+            new_keys=data.get("new_keys") or data.get("new_media_keys") or [],
+            status=status,
+            status_message=status_msg,
         )
 
     async def scrape_share_url_async(self, share_url: str, timeout: Optional[float] = None) -> ScrapedShare:
