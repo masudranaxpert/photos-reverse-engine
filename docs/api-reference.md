@@ -275,6 +275,32 @@ class DriveImportResult:
     media_key: str              # Newly created Google Photos media key
     dedup_key: str              # Deduplication key in Photos
     download_url: Optional[str] # Direct stream download URL
+    filename: str = ""          # Original filename (if available)
+```
+
+### `DriveBatchItem`
+
+```python
+@dataclass
+class DriveBatchItem:
+    drive_file_id: str          # Google Drive unique file ID
+    mime_type: str = "video/*"  # MIME type of the file
+```
+
+### `DriveImportItemResult`
+
+```python
+@dataclass
+class DriveImportItemResult:
+    drive_file_id: str          # Google Drive file ID
+    media_key: str              # Created Google Photos media key
+    dedup_key: str              # Deduplication key in Photos
+    download_url: Optional[str] # Direct download URL (if available)
+    width: int = 0              # Media width in pixels
+    height: int = 0             # Media height in pixels
+    file_size: int = 0          # Exact file size in bytes
+    status: int = 0             # Status code (0 = Success, 8 = Storage Quota Exceeded)
+    error: str = ""             # Error description if failed
 ```
 
 ### `StorageQuota`
@@ -318,56 +344,407 @@ class AccountResetResult:
 
 ## Web Client & Cookies API
 
-For cookie-authenticated web sessions, Google Drive to Photos imports, storage quota inspection, and session database persistence.
+The Web Client API provides cookie-authenticated Google Photos session management, Google Drive-to-Photos imports, storage quota queries, download stream URL resolution, public link creation, and library cleanup.
 
-### `NativeWebClient` (Go Core DLL Powered)
+!!! note "Engine Architecture"
+    `photos_engine` is a standalone, low-level native engine powered directly by the compiled Go core dynamic library (`libphotos_engine`). The `NativeWebClient` (aliased as `WebClient`) communicates directly with Google Photos internal web RPC endpoints (`SusGud`, `VrseUb`, `SFKp8c`, `XwAOJf`, `e2FP6c`) via in-process C-ABI bindings without requiring any external web applications, servers, or proxy layers.
 
-Direct ctypes FFI binding to the native Go GPWC core engine:
+### `NativeWebClient` Overview
+
+```python
+from photos_engine import NativeWebClient, WebClient
+```
+
+Both `NativeWebClient` and `WebClient` reference the same class.
+
+### WebClient Methods
+
+| Method | Return Type | Description |
+| :--- | :--- | :--- |
+| `NativeWebClient.check_status(cookies)` | [`CookieStatus`](#cookiestatus) | Stateless cookie validation and account verification. |
+| `NativeWebClient.from_blob(blob)` | `NativeWebClient` | Restore client from a serialized session blob. |
+| [`client.import_from_drive()`](#import_from_drive) | [`DriveImportResult`](#driveimportresult) | Import single Drive file via `SusGud` RPC (with auto quota error). |
+| [`client.batch_import_from_drive()`](#batch_import_from_drive) | [`DriveBatchImportResult`](#drivebatchimportresult) | Batch import Drive files with automatic quota full detection. |
+| [`client.get_storage_quota()`](#get_storage_quota) | [`StorageQuota`](#storagequota) | Fetch storage usage, used/free percentages, and byte limits. |
+| [`client.get_download_url()`](#get_download_url-web) | [`DownloadInfo`](#downloadinfo) | Direct download stream URL and dedup key via `VrseUb` RPC. |
+| [`client.create_share_link()`](#create_share_link-web) | [`PublicShareLink`](#publicsharelink) | Create public `photos.app.goo.gl` short link via `SFKp8c` RPC. |
+| [`client.reset_account()`](#reset_account) | [`AccountResetResult`](#accountresetresult) | Wipe entire library: move all items to trash and empty trash bin. |
+| [`client.export_session_blob()`](#export_session_blob) | `bytes` | Export binary session state for database persistence. |
+| [`client.export_cookies()`](#export_cookies) | `Dict[str, str]` | Export current live cookies from session jar. |
+| [`client.close()`](#close) | `None` | Free the underlying Go client handle and allocated memory. |
+
+---
+
+### Constructor
+
+```python
+NativeWebClient(cookies: str, dll_path: Optional[str] = None)
+```
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cookies` | `str` | *required* | Raw cookie string (Netscape format, HTTP header string, or key-value pairs). |
+| `dll_path` | `str, optional` | `None` | Custom path to the compiled Go shared library (`.dll`, `.so`, `.dylib`). |
+
+**Example:**
 
 ```python
 from photos_engine import NativeWebClient
 
-# 1. Quick status check without keeping persistent handle
-status = NativeWebClient.check_status("cookies_data_here")
-
-# 2. Stateful client with compiled Go core performance
-with NativeWebClient(cookies="cookies_data_here") as client:
-    # Check account storage quota
+# Use as a context manager for automatic handle release
+with NativeWebClient(cookies="SID=...; HSID=...; SSID=...") as client:
     quota = client.get_storage_quota()
-    print(f"Storage: {quota.usage_text} ({quota.used_percent}% used)")
-
-    # Batch import files from Google Drive with quota full detection
-    res = client.batch_import_from_drive([
-        {"drive_file_id": "173o1kBve_...", "mime_type": "video/x-matroska"},
-        {"drive_file_id": "1TjQP3B7gw...", "mime_type": "video/x-matroska"},
-    ], cleanup=False)
-    if res.quota_exceeded:
-        print("Storage quota full!")
-    else:
-        print(f"Imported {res.success_count} files successfully!")
-
-    # Complete account library wipe and purge trash
-    reset = client.reset_account()
-    print(f"Reset {reset.total_deleted} items: {reset.message}")
+    print(f"Storage: {quota.usage_text}")
 ```
 
-### `GooglePhotosWebClient` (httpcloak & Database Sessions)
+---
 
-High-level Python web client supporting pluggable session storage (SQLite, PostgreSQL, MySQL) and automatic rotating cookie synchronization:
+### `check_status()`
 
 ```python
-from photos_engine import GooglePhotosWebClient, DatabaseCookieStore
-
-# Database-backed session store with customizable table and column names
-store = DatabaseCookieStore(
-    db_source="cookies.db",
-    table_name="my_sessions",
-    session_id_col="sess_id",
-    blob_col="blob_data",
-)
-
-with GooglePhotosWebClient(store=store) as client:
-    status = client.check_status(session_id="default")
-    print("Account:", status.account)
+NativeWebClient.check_status(cookies: str, dll_path: Optional[str] = None) -> CookieStatus
 ```
+
+Class method to perform a stateless cookie validation and extract connected account email without retaining a persistent Go client handle.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `cookies` | `str` | *required* | Cookie string to validate. |
+| `dll_path` | `str, optional` | `None` | Custom path to Go shared library. |
+
+**Returns:**
+
+* [`CookieStatus`](#cookiestatus): Object containing `.valid` (`bool`), `.account` (`str` email), and `.message` (`str`).
+
+**Example:**
+
+```python
+status = NativeWebClient.check_status("SID=...; HSID=...")
+if status.valid:
+    print(f"Connected: {status.account}")
+else:
+    print(f"Invalid cookies: {status.message}")
+```
+
+---
+
+### `from_blob()`
+
+```python
+NativeWebClient.from_blob(blob: Union[bytes, str], dll_path: Optional[str] = None) -> NativeWebClient
+```
+
+Restores an active `NativeWebClient` instance from a previously serialized session blob (`bytes` or hex string).
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `blob` | `bytes` or `str` | *required* | Serialized session blob bytes or hex string from `export_session_blob()`. |
+| `dll_path` | `str, optional` | `None` | Custom path to Go shared library. |
+
+**Returns:**
+
+* `NativeWebClient`: Active client restored with full session state (cookies, TLS session tickets).
+
+---
+
+### `import_from_drive()`
+
+```python
+client.import_from_drive(
+    drive_file_id: str, 
+    mime_type: str = "video/*", 
+    cleanup: bool = False
+) -> DriveImportResult
+```
+
+Imports a single file from Google Drive into Google Photos using the internal `SusGud` batchexecute RPC.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `drive_file_id` | `str` | *required* | Google Drive unique file identifier. |
+| `mime_type` | `str` | `"video/*"` | MIME type of the file. Defaults to `"video/*"`. |
+| `cleanup` | `bool` | `False` | If `True`, automatically moves the item to trash and purges it after import. |
+
+**Returns:**
+
+* [`DriveImportResult`](#driveimportresult): Struct containing `drive_file_id`, `media_key`, `dedup_key`, and `download_url`.
+
+**Quota Handling & Error Behavior:**
+
+!!! warning "Automatic Quota Detection in Single Import"
+    When Google Photos account storage is full, the native Go core detects `PhotosWebImportDriveItemsFailure` (error code `8`) in the RPC envelope and raises a `RuntimeError`:
+    ```
+    RuntimeError: GPWC_ImportFromDrive failed: STORAGE_QUOTA_EXCEEDED: Google Photos storage is full (PhotosWebImportDriveItemsFailure)
+    ```
+    Callers can catch `RuntimeError` and check `if "STORAGE_QUOTA_EXCEEDED" in str(err):` to detect quota exhaustion.
+
+**Example:**
+
+```python
+try:
+    result = client.import_from_drive("1A2B3C4D5E6F_drive_id")
+    print(f"Imported Media Key: {result.media_key}")
+    print(f"Direct Stream URL: {result.download_url}")
+except RuntimeError as err:
+    if "STORAGE_QUOTA_EXCEEDED" in str(err):
+        print("Storage quota is full! Please purge old items or upgrade storage.")
+    else:
+        print(f"Import failed: {err}")
+```
+
+---
+
+### `batch_import_from_drive()`
+
+```python
+client.batch_import_from_drive(
+    items: List[Any], 
+    cleanup: bool = False, 
+    timeout_ms: int = 120000
+) -> DriveBatchImportResult
+```
+
+High-throughput batch import of multiple Google Drive files in a single `SusGud` RPC request with proactive quota full detection.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `items` | `List[Any]` | *required* | List of items. Accepts `DriveBatchItem`, dicts `{"drive_file_id": "...", "mime_type": "..."}`, tuples `(id, mime)`, or strings `drive_id`. |
+| `cleanup` | `bool` | `False` | If `True`, moves all successfully imported items to trash and empties trash. |
+| `timeout_ms` | `int` | `120000` | Network timeout in milliseconds (default 120 seconds). |
+
+**Returns:**
+
+* [`DriveBatchImportResult`](#drivebatchimportresult): Struct containing `success_count`, `failed_count`, `items`, `quota_exceeded`, and `error_message`.
+
+**Automatic Quota Exceeded Detection:**
+
+!!! danger "Automatic Quota Full Reporting"
+    When storage quota is exceeded, Google Photos rejects the batch import with error code `8` (`PhotosWebImportDriveItemsFailure`). The native Go engine automatically:
+    
+    1. Sets `result.quota_exceeded = True`.
+    2. Populates `result.error_message = "Google Photos storage quota is full. Import failed."`.
+    3. Flags each unimported item in `result.items` with `status = 8` and `error = "Storage quota exceeded"`.
+
+**Example:**
+
+```python
+items = [
+    {"drive_file_id": "173o1kBve_...", "mime_type": "video/mp4"},
+    {"drive_file_id": "1TjQP3B7gw...", "mime_type": "video/x-matroska"},
+]
+
+res = client.batch_import_from_drive(items)
+
+if res.quota_exceeded:
+    print(f"Quota exceeded! {res.error_message}")
+    # Automatic trigger: free up temporary space or notify user
+else:
+    print(f"Imported {res.success_count}/{len(items)} files successfully.")
+    for item in res.items:
+        if item.status == 0:
+            print(f"  [OK] {item.drive_file_id} -> media_key: {item.media_key}")
+        else:
+            print(f"  [FAIL] {item.drive_file_id} -> error: {item.error} (status {item.status})")
+```
+
+---
+
+### `get_storage_quota()`
+
+```python
+client.get_storage_quota() -> StorageQuota
+```
+
+Queries the Google Photos storage management endpoint (`https://photos.google.com/quotamanagement`) to retrieve live account storage consumption and total limits.
+
+**Returns:**
+
+* [`StorageQuota`](#storagequota): Dataclass containing display text, percentages, and byte numbers.
+
+**Example:**
+
+```python
+quota = client.get_storage_quota()
+
+print(f"Usage: {quota.usage_text}")          # "9.3 GB of 15 GB used"
+print(f"Used:  {quota.used_display} ({quota.used_percent}%)")
+print(f"Free:  {quota.free_percent}% remaining")
+print(f"Bytes: {quota.used_bytes:,} / {quota.total_bytes:,} bytes")
+```
+
+---
+
+### `get_download_url()` (Web)
+
+```python
+client.get_download_url(media_key: str) -> DownloadInfo
+```
+
+Retrieves direct original-quality download stream URL and dedup key for any media key via `VrseUb` batchexecute RPC.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `media_key` | `str` | *required* | Google Photos unique media key. |
+
+**Returns:**
+
+* [`DownloadInfo`](#downloadinfo): Direct download stream URL and deduplication key.
+
+**Example:**
+
+```python
+info = client.get_download_url("AF1QipM...")
+print("Stream URL:", info.download_url)
+print("Dedup Key:",  info.dedup_key)
+```
+
+---
+
+### `create_share_link()` (Web)
+
+```python
+client.create_share_link(media_key: str) -> PublicShareLink
+```
+
+Generates an official public `https://photos.app.goo.gl/...` short link using the `SFKp8c` batchexecute RPC.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `media_key` | `str` | *required* | Media key of the item to share. |
+
+**Returns:**
+
+* [`PublicShareLink`](#publicsharelink): Struct containing `share_url`, `envelope_key`, and `auth_key`.
+
+**Example:**
+
+```python
+link = client.create_share_link("AF1QipM...")
+print("Public Share URL:", link.share_url)
+```
+
+---
+
+### `reset_account()`
+
+```python
+client.reset_account(timeout_ms: int = 120000) -> AccountResetResult
+```
+
+Completely wipes the Google Photos library: paginates and moves all items to trash via `XwAOJf` and permanently purges the trash bin via `e2FP6c`.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `timeout_ms` | `int` | `120000` | Operation timeout in milliseconds (default 120 seconds). |
+
+**Returns:**
+
+* [`AccountResetResult`](#accountresetresult): Summary indicating `success`, `total_deleted`, `trash_emptied`, and `message`.
+
+**Example:**
+
+```python
+reset = client.reset_account()
+print(f"Library reset: {reset.total_deleted} items expunged, trash emptied: {reset.trash_emptied}")
+```
+
+---
+
+### `export_session_blob()`
+
+```python
+client.export_session_blob() -> bytes
+```
+
+Exports the active session state (cookies, TLS session cache, HTTP/2 connection tickets) as serialized binary bytes. This allows saving the session to a database and restoring it later without re-authenticating.
+
+**Returns:**
+
+* `bytes`: Serialized binary session blob.
+
+**Example:**
+
+```python
+# Export session to binary blob
+blob_bytes = client.export_session_blob()
+
+# Persist in SQLite / PostgreSQL database
+cursor.execute("UPDATE sessions SET session_blob = ? WHERE session_id = ?", (blob_bytes, "default"))
+
+# Later: restore client directly from blob
+restored = NativeWebClient.from_blob(blob_bytes)
+```
+
+---
+
+### `export_cookies()`
+
+```python
+client.export_cookies() -> Dict[str, str]
+```
+
+Exports current live cookies from the session jar as formatted cookie headers and Netscape-format strings.
+
+**Returns:**
+
+* `Dict[str, str]`: Dictionary with exported cookie data.
+
+---
+
+### `close()`
+
+```python
+client.close() -> None
+```
+
+Explicitly releases the underlying Go client handle and frees memory. Automatically called when using `with NativeWebClient(...)` context manager.
+
+---
+
+### Storage Quota & Automatic Quota Detection
+
+Google Photos enforces strict storage quotas across Google Drive and Google Photos. When storage is exhausted, Drive-to-Photos imports fail immediately.
+
+```mermaid
+sequenceDiagram
+    participant App as Application
+    participant Engine as Photos Engine (Go Core)
+    participant Google as Google Photos RPC (SusGud)
+    
+    App->>Engine: batch_import_from_drive(items)
+    Engine->>Google: batchexecute SusGud
+    Google-->>Engine: Error Code [8] / PhotosWebImportDriveItemsFailure
+    Note over Engine: Protocol error parser detects quota full
+    Engine-->>App: DriveBatchImportResult(quota_exceeded=True, status=8)
+    Note over App: App detects quota_exceeded & triggers cleanup
+```
+
+#### How Automatic Quota Detection Works
+
+1. **Protocol-Level Parsing**: The native Go engine inspects index 5 of the batchexecute response envelope. When Google Photos rejects the import because the storage limit has been reached, it returns error code `[8]` (`PhotosWebImportDriveItemsFailure`).
+2. **Batch Import Handling**:
+   - `result.quota_exceeded` is automatically set to `True`.
+   - `result.error_message` is set to `"Google Photos storage quota is full. Import failed."`.
+   - Each unimported item in `result.items` receives `status = 8` and `error = "Storage quota exceeded"`.
+3. **Single Import Handling**:
+   - `client.import_from_drive(...)` detects the quota full error and raises `RuntimeError: STORAGE_QUOTA_EXCEEDED: Google Photos storage is full (PhotosWebImportDriveItemsFailure)`.
+4. **Proactive Inspection**:
+   - Call `client.get_storage_quota()` before starting imports to inspect `used_percent` and available `free_percent`.
+
 
