@@ -291,3 +291,36 @@ func TestParseSusGudBatchSuccess(t *testing.T) {
 		t.Errorf("expected dedup key QleyGUKTgeHhG39OwuYv-JftvYM, got %s", dedup0)
 	}
 }
+
+func TestParseSusGudUnsupportedFormat(t *testing.T) {
+	// Status 3 payload: Google Photos rejects non-media files (e.g. .rar, .zip)
+	unsupportedPayload := `)]}'
+
+72
+[["wrb.fr","SusGud","[[[\"1NNVzoBzBeAg4FIOPijqJHkgxWJPxBtC7\",null,3]]]",null,null,null,"generic"],["di",1234],["af.httprm",1234,"-1234567890",10]]`
+
+	respData, err := parseBatchexecuteEnvelope(unsupportedPayload, "SusGud")
+	if err != nil {
+		t.Fatalf("parseBatchexecuteEnvelope failed: %v", err)
+	}
+
+	itemsArr := safeGetIndex(respData, 0)
+	list, ok := itemsArr.([]interface{})
+	if !ok || len(list) != 1 {
+		t.Fatalf("expected 1 item in list, got %v", itemsArr)
+	}
+
+	it := list[0].([]interface{})
+	driveID := it[0].(string)
+	if driveID != "1NNVzoBzBeAg4FIOPijqJHkgxWJPxBtC7" {
+		t.Errorf("expected driveID 1NNVzoBzBeAg4FIOPijqJHkgxWJPxBtC7, got %s", driveID)
+	}
+	if it[1] != nil {
+		t.Errorf("expected nil metadata for unsupported file, got %v", it[1])
+	}
+	st := int(it[2].(float64))
+	if st != 3 {
+		t.Errorf("expected status 3, got %d", st)
+	}
+}
+

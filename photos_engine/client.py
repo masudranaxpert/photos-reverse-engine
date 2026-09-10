@@ -975,6 +975,7 @@ class NativeWebClient:
                     file_size=raw_it.get("file_size", 0),
                     status=raw_it.get("status", 0),
                     error=raw_it.get("error", ""),
+                    raw_item=raw_it.get("raw_item"),
                 )
             )
 
@@ -984,6 +985,7 @@ class NativeWebClient:
             items=item_results,
             quota_exceeded=data.get("quota_exceeded", False),
             error_message=data.get("error_message", ""),
+            raw_response=data.get("raw_response"),
         )
 
     def reset_account(self, timeout_ms: int = 120000) -> AccountResetResult:

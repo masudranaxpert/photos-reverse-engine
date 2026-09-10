@@ -132,6 +132,7 @@ class DriveImportItemResult:
     file_size: int = 0
     status: int = 0
     error: str = ""
+    raw_item: Optional[str] = None
 
 
 @dataclass
@@ -141,6 +142,7 @@ class DriveBatchImportResult:
     items: List[DriveImportItemResult] = field(default_factory=list)
     quota_exceeded: bool = False
     error_message: str = ""
+    raw_response: Optional[str] = None
 
 
 @dataclass

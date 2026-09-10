@@ -376,6 +376,11 @@ func (c *WebClient) BatchImportFromDrive(items []DriveBatchItem, cleanup bool, t
 		return nil, fmt.Errorf("SusGud batch import failed: %w", err)
 	}
 
+	// Capture raw response for debugging and inspectability
+	if rawBytes, err := json.Marshal(respData); err == nil {
+		result.RawResponse = string(rawBytes)
+	}
+
 	// Parse items from response
 	itemsArr := safeGetIndex(respData, 0)
 	list, ok := itemsArr.([]interface{})
@@ -394,6 +399,9 @@ func (c *WebClient) BatchImportFromDrive(items []DriveBatchItem, cleanup bool, t
 		driveID, _ := sub[0].(string)
 		itemRes := DriveImportItemResult{
 			DriveFileID: driveID,
+		}
+		if rawSub, err := json.Marshal(sub); err == nil {
+			itemRes.RawItem = string(rawSub)
 		}
 
 		if len(sub) > 2 {
@@ -434,7 +442,14 @@ func (c *WebClient) BatchImportFromDrive(items []DriveBatchItem, cleanup bool, t
 		} else {
 			result.FailedCount++
 			if itemRes.Error == "" {
-				itemRes.Error = fmt.Sprintf("Import status %d", itemRes.Status)
+				switch itemRes.Status {
+				case 1:
+					itemRes.Error = "Processing (status 1)"
+				case 3:
+					itemRes.Error = "Unsupported format or rejected by Google Photos (status 3)"
+				default:
+					itemRes.Error = fmt.Sprintf("Import status %d", itemRes.Status)
+				}
 			}
 		}
 
@@ -473,17 +488,18 @@ func importFromDriveInternal(c *WebClient, driveFileID, mimeType string, cleanup
 	if err != nil {
 		return nil, err
 	}
-	if len(batchRes.Items) == 0 {
-		return nil, fmt.Errorf("mediaKey not found in SusGud response: empty items list (drive_id=%s mime=%s)", driveFileID, mimeType)
-	}
-	item := batchRes.Items[0]
-	if item.MediaKey == "" {
-		errMsg := item.Error
-		if errMsg == "" {
-			errMsg = fmt.Sprintf("status=%d", item.Status)
+	if len(batchRes.Items) == 0 || batchRes.Items[0].MediaKey == "" {
+		if len(batchRes.Items) > 0 {
+			it := batchRes.Items[0]
+			if it.Status == 3 {
+				return nil, fmt.Errorf("file rejected by Google Photos (status 3: unsupported format or non-media file): %s", driveFileID)
+			}
+			return nil, fmt.Errorf("import failed (status %d): %s", it.Status, it.Error)
 		}
-		return nil, fmt.Errorf("mediaKey not found in SusGud response: %s (drive_id=%s mime=%s)", errMsg, driveFileID, mimeType)
+		return nil, fmt.Errorf("mediaKey not found in SusGud response")
 	}
+
+	item := batchRes.Items[0]
 	res := &DriveImportResult{
 		DriveFileID: item.DriveFileID,
 		MediaKey:    item.MediaKey,
@@ -503,7 +519,6 @@ func importFromDriveInternal(c *WebClient, driveFileID, mimeType string, cleanup
 
 	return res, nil
 }
-
 
 // GetDownloadURL retrieves direct download URL and dedup key for a mediaKey using VrseUb RPC with photo page fallback.
 func (c *WebClient) GetDownloadURL(mediaKey string) (*DownloadInfo, error) {
@@ -843,4 +858,3 @@ func parseSizeToBytes(sizeStr string) int64 {
 
 	return int64(num * multiplier)
 }
-

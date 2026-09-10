@@ -91,6 +91,7 @@ type DriveImportItemResult struct {
 	FileSize    int64  `json:"file_size,omitempty"`
 	Status      int    `json:"status"`
 	Error       string `json:"error,omitempty"`
+	RawItem     string `json:"raw_item,omitempty"`
 }
 
 // DriveBatchImportResult contains results of batch importing from Google Drive.
@@ -100,6 +101,7 @@ type DriveBatchImportResult struct {
 	Items         []DriveImportItemResult `json:"items"`
 	QuotaExceeded bool                    `json:"quota_exceeded"`
 	ErrorMessage  string                  `json:"error_message,omitempty"`
+	RawResponse   string                  `json:"raw_response,omitempty"`
 }
 
 // AccountResetResult contains details of Google Photos library reset / wipe operation.
