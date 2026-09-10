@@ -291,6 +291,29 @@ class StorageQuota:
     total_bytes: int   # Total storage limit in bytes
 ```
 
+### `DriveBatchImportResult`
+
+```python
+@dataclass
+class DriveBatchImportResult:
+    success_count: int               # Count of successfully imported items
+    failed_count: int                # Count of failed items
+    items: List[DriveImportItemResult] # Individual item results
+    quota_exceeded: bool             # True if rejected due to storage quota full
+    error_message: str               # Detailed error description
+```
+
+### `AccountResetResult`
+
+```python
+@dataclass
+class AccountResetResult:
+    success: bool        # True if reset succeeded
+    total_deleted: int   # Total items moved to trash and purged
+    trash_emptied: bool  # True if trash was permanently emptied
+    message: str         # Detailed summary message
+```
+
 ---
 
 ## Web Client & Cookies API
@@ -313,9 +336,19 @@ with NativeWebClient(cookies="cookies_data_here") as client:
     quota = client.get_storage_quota()
     print(f"Storage: {quota.usage_text} ({quota.used_percent}% used)")
 
-    # Import file from Google Drive
-    result = client.import_from_drive("GOOGLE_DRIVE_FILE_ID", cleanup=True)
-    print("Download URL:", result.download_url)
+    # Batch import files from Google Drive with quota full detection
+    res = client.batch_import_from_drive([
+        {"drive_file_id": "173o1kBve_...", "mime_type": "video/x-matroska"},
+        {"drive_file_id": "1TjQP3B7gw...", "mime_type": "video/x-matroska"},
+    ], cleanup=False)
+    if res.quota_exceeded:
+        print("Storage quota full!")
+    else:
+        print(f"Imported {res.success_count} files successfully!")
+
+    # Complete account library wipe and purge trash
+    reset = client.reset_account()
+    print(f"Reset {reset.total_deleted} items: {reset.message}")
 ```
 
 ### `GooglePhotosWebClient` (httpcloak & Database Sessions)

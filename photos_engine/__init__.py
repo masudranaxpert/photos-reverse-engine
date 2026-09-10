@@ -9,8 +9,12 @@ from pathlib import Path
 
 from .client import GPMCClient, NativeWebClient, PhotosEngineClient, scrape_share_url
 from .models import (
+    AccountResetResult,
     CookieStatus,
     DownloadInfo,
+    DriveBatchImportResult,
+    DriveBatchItem,
+    DriveImportItemResult,
     DriveImportResult,
     ExistResult,
     PublicShareLink,
@@ -91,5 +95,9 @@ __all__ = [
     "PublicShareLink",
     "CookieStatus",
     "DriveImportResult",
+    "DriveBatchItem",
+    "DriveImportItemResult",
+    "DriveBatchImportResult",
+    "AccountResetResult",
     "StorageQuota",
 ]

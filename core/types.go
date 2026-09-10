@@ -74,5 +74,38 @@ type StorageQuota struct {
 	TotalBytes   int64   `json:"total_bytes"`   // in bytes
 }
 
+// DriveBatchItem represents an individual Google Drive file to import.
+type DriveBatchItem struct {
+	DriveFileID string `json:"drive_file_id"`
+	MimeType    string `json:"mime_type"`
+}
 
+// DriveImportItemResult represents the outcome for an individual file in a batch import.
+type DriveImportItemResult struct {
+	DriveFileID string `json:"drive_file_id"`
+	MediaKey    string `json:"media_key"`
+	DedupKey    string `json:"dedup_key"`
+	DownloadURL string `json:"download_url,omitempty"`
+	Width       int    `json:"width,omitempty"`
+	Height      int    `json:"height,omitempty"`
+	FileSize    int64  `json:"file_size,omitempty"`
+	Status      int    `json:"status"`
+	Error       string `json:"error,omitempty"`
+}
 
+// DriveBatchImportResult contains results of batch importing from Google Drive.
+type DriveBatchImportResult struct {
+	SuccessCount  int                     `json:"success_count"`
+	FailedCount   int                     `json:"failed_count"`
+	Items         []DriveImportItemResult `json:"items"`
+	QuotaExceeded bool                    `json:"quota_exceeded"`
+	ErrorMessage  string                  `json:"error_message,omitempty"`
+}
+
+// AccountResetResult contains details of Google Photos library reset / wipe operation.
+type AccountResetResult struct {
+	Success      bool   `json:"success"`
+	TotalDeleted int    `json:"total_deleted"`
+	TrashEmptied bool   `json:"trash_emptied"`
+	Message      string `json:"message"`
+}

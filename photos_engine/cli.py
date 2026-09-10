@@ -167,27 +167,86 @@ def _cmd_cookies_check(args):
 
 
 def _cmd_drive_import(args):
-    """Import a Google Drive file into Google Photos and fetch download URL."""
+    """Import Google Drive file(s) into Google Photos and fetch download URL(s)."""
     cookies_data = _read_cookies(args.cookies_file)
     client = NativeWebClient(cookies=cookies_data)
     try:
-        print(f"Importing Drive file ID: {args.drive_file_id} ...")
-        res = client.import_from_drive(
-            drive_file_id=args.drive_file_id,
+        drive_ids = args.drive_file_ids
+        print(f"Importing {len(drive_ids)} Drive file(s) ...")
+        res = client.batch_import_from_drive(
+            items=[{"drive_file_id": d_id, "mime_type": "video/*"} for d_id in drive_ids],
             cleanup=args.cleanup,
+            timeout_ms=args.timeout * 1000 if hasattr(args, "timeout") and args.timeout else 120000,
         )
+
+        if res.quota_exceeded:
+            print("[CRITICAL] Google Photos storage is FULL! (PhotosWebImportDriveItemsFailure)", file=sys.stderr)
+
         if args.json:
             print(json.dumps({
-                "drive_file_id": res.drive_file_id,
-                "media_key": res.media_key,
-                "dedup_key": res.dedup_key,
-                "download_url": res.download_url,
+                "success_count": res.success_count,
+                "failed_count": res.failed_count,
+                "quota_exceeded": res.quota_exceeded,
+                "error_message": res.error_message,
+                "items": [
+                    {
+                        "drive_file_id": it.drive_file_id,
+                        "media_key": it.media_key,
+                        "dedup_key": it.dedup_key,
+                        "download_url": it.download_url,
+                        "width": it.width,
+                        "height": it.height,
+                        "file_size": it.file_size,
+                        "status": it.status,
+                        "error": it.error,
+                    }
+                    for it in res.items
+                ],
             }, indent=2))
         else:
-            print(f"Drive File ID : {res.drive_file_id}")
-            print(f"Media Key     : {res.media_key}")
-            print(f"Dedup Key     : {res.dedup_key}")
-            print(f"Download URL  : {res.download_url or 'N/A'}")
+            print(f"Success Count : {res.success_count}")
+            print(f"Failed Count  : {res.failed_count}")
+            if res.quota_exceeded:
+                print("Quota Status  : EXCEEDED (Storage full)")
+            for idx, it in enumerate(res.items, 1):
+                status_str = "OK" if it.status == 0 and it.media_key else f"FAILED ({it.error})"
+                print(f"[{idx}] {it.drive_file_id} -> {status_str}")
+                if it.media_key:
+                    print(f"    Media Key    : {it.media_key}")
+                    print(f"    Dedup Key    : {it.dedup_key}")
+                    print(f"    Download URL : {it.download_url or 'N/A'}")
+                    if it.width and it.height:
+                        print(f"    Resolution   : {it.width}x{it.height}")
+                    if it.file_size:
+                        print(f"    File Size    : {it.file_size} bytes")
+    finally:
+        client.close()
+
+
+def _cmd_reset_account(args):
+    """Clear all photos/videos from Google Photos library and permanently empty trash."""
+    if not args.confirm:
+        print("Error: Library reset will permanently DELETE all media in this Google account!", file=sys.stderr)
+        print("To proceed, you must pass the --confirm flag: photos-engine reset-account --confirm", file=sys.stderr)
+        sys.exit(1)
+
+    cookies_data = _read_cookies(args.cookies_file)
+    client = NativeWebClient(cookies=cookies_data)
+    try:
+        print("Starting Google Photos account reset & complete library wipe...")
+        res = client.reset_account(timeout_ms=180000)
+        if args.json:
+            print(json.dumps({
+                "success": res.success,
+                "total_deleted": res.total_deleted,
+                "trash_emptied": res.trash_emptied,
+                "message": res.message,
+            }, indent=2))
+        else:
+            print(f"Success       : {res.success}")
+            print(f"Total Deleted : {res.total_deleted} item(s)")
+            print(f"Trash Emptied : {res.trash_emptied}")
+            print(f"Status        : {res.message}")
     finally:
         client.close()
 
@@ -275,11 +334,17 @@ def main():
     p_cc.add_argument("--session", "-s", default="default", help="Session ID (default: 'default')")
 
     # Command: drive-import
-    p_di = subparsers.add_parser("drive-import", help="Import Drive file to Photos via cookies", parents=[common_parser])
-    p_di.add_argument("drive_file_id", help="Google Drive File ID to import")
+    p_di = subparsers.add_parser("drive-import", help="Import Google Drive file(s) to Photos via cookies", parents=[common_parser])
+    p_di.add_argument("drive_file_ids", nargs="+", help="One or more Google Drive File IDs to import")
     p_di.add_argument("--cookies-file", "-c", default="cookies.txt", help="Path to cookies.txt")
     p_di.add_argument("--session", "-s", default="default", help="Session ID (default: 'default')")
     p_di.add_argument("--cleanup", action="store_true", help="Move to trash and permanently delete after obtaining download URL")
+    p_di.add_argument("--timeout", type=int, default=120, help="Timeout in seconds for import operation (default: 120)")
+
+    # Command: reset-account
+    p_reset = subparsers.add_parser("reset-account", help="Clear entire Google Photos library and permanently empty trash", parents=[common_parser])
+    p_reset.add_argument("--cookies-file", "-c", default="cookies.txt", help="Path to cookies.txt")
+    p_reset.add_argument("--confirm", action="store_true", help="Confirmation flag required to perform permanent wipe")
 
     # Command: quota
     p_quota = subparsers.add_parser("quota", help="Fetch Google Photos account storage quota and limits", parents=[common_parser])
@@ -300,6 +365,7 @@ def main():
         "check": _cmd_check,
         "cookies-check": _cmd_cookies_check,
         "drive-import": _cmd_drive_import,
+        "reset-account": _cmd_reset_account,
         "quota": _cmd_quota,
     }
 

@@ -208,4 +208,86 @@ func TestParseStorageQuotaHTML(t *testing.T) {
 	}
 }
 
+func TestParseBatchexecuteErrors(t *testing.T) {
+	// 1. Quota exceeded payload (User sample 2)
+	quotaErrPayload := `)]}'
 
+202
+[["wrb.fr","SusGud",null,null,null,[8,null,[["type.googleapis.com/social.frontend.photos.data.PhotosWebImportDriveItemsFailure",[1]]]],"generic"],["di",266],["af.httprm",265,"6924186633903814306",28]]
+25
+[["e",4,null,null,238]]`
+
+	_, err := parseBatchexecuteEnvelope(quotaErrPayload, "SusGud")
+	if err == nil {
+		t.Fatal("expected error for quota exceeded payload, got nil")
+	}
+	if !strings.Contains(err.Error(), "STORAGE_QUOTA_EXCEEDED") {
+		t.Errorf("expected STORAGE_QUOTA_EXCEEDED in error message, got: %v", err)
+	}
+
+	// 2. Timeout payload (User sample 1)
+	timeoutPayload := `)]}'
+
+111
+[["wrb.fr","SusGud",null,null,null,[13],"generic"],["di",30081],["af.httprm",30081,"4257157892430432481",47]]
+25
+[["e",4,null,null,147]]`
+
+	_, err2 := parseBatchexecuteEnvelope(timeoutPayload, "SusGud")
+	if err2 == nil {
+		t.Fatal("expected error for timeout payload, got nil")
+	}
+	if !strings.Contains(err2.Error(), "RPC_TIMEOUT") {
+		t.Errorf("expected RPC_TIMEOUT in error message, got: %v", err2)
+	}
+}
+
+func TestParseSusGudBatchSuccess(t *testing.T) {
+	// User sample 3: Multi-item success response
+	successPayload := `)]}'
+
+1241
+[["wrb.fr","SusGud","[[[\"173o1kBve_RiXmI2ECCrfgRT91KG62Mz3\",[\"AF1QipMjDY09Q2fyOLRqbT9n67ChqorvTboeE2CeuYqP\",[\"https://photos.fife.usercontent.google.com/pw/AP1GczOyO4bSxduAfPJi-2iM1FLM2v-wK3lkquFc5aJA5iwXNz1FQniGh5PH\",1920,960],1760683961882,\"QleyGUKTgeHhG39OwuYv-JftvYM\",21600000,1789024049822,null,null,2,{\"15\":2128,\"76647426\":[7056840,null,null,null,null,3,null,null,null,false]}],0],[\"1TjQP3B7gw1tEkNPJbmalIbYDVWlxggXH\",[\"AF1QipM29VPaagOBq3zW_IMTith5S-oOVSKvuW2PUFyu\",[\"https://photos.fife.usercontent.google.com/pw/AP1GczMxU8CF5mElNNe28F67HV4Gi6dAVE72-HsjKmQR7A0xb4gdFlP7ChqH\",1920,1080],1786949954936,\"fU6BFiqfkEE9Aa9TU7Vrh6O3J0g\",21600000,1789024049822,null,null,2,{\"15\":2128,\"76647426\":[13192743,null,null,null,null,3,null,null,null,false]}],0],[\"1H2E0dwhZlBfE2xNNZwN2nkhvUgyLZIVm\",[\"AF1QipNUzSFcxjys2rSaFpqS0vBxcW82Mw2icDhvZM1G\",[\"https://photos.fife.usercontent.google.com/pw/AP1GczMO1EJFSbr_1TuiK3v7TmALQN7uDk10nuetQKaSaj30cfQ1en_3bzuP\",720,300],1787855146041,\"CW5DDh5Ec7PpdmgS0gA5cQCVE_U\",21600000,1789024049822,null,null,2,{\"15\":2128,\"76647426\":[11054270,null,null,null,null,3,null,null,null,false]}],0]]]",null,null,null,"generic"],["di",2250],["af.httprm",2250,"-7729581887131103621",29]]
+26
+[["e",4,null,null,1279]]`
+
+	respData, err := parseBatchexecuteEnvelope(successPayload, "SusGud")
+	if err != nil {
+		t.Fatalf("parseBatchexecuteEnvelope failed: %v", err)
+	}
+
+	itemsArr := safeGetIndex(respData, 0)
+	list, ok := itemsArr.([]interface{})
+	if !ok {
+		t.Fatalf("expected []interface{} for itemsArr, got %T", itemsArr)
+	}
+
+	if len(list) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(list))
+	}
+
+	// First item check
+	it0 := list[0].([]interface{})
+	driveID0 := it0[0].(string)
+	if driveID0 != "173o1kBve_RiXmI2ECCrfgRT91KG62Mz3" {
+		t.Errorf("expected driveID 173o1kBve_RiXmI2ECCrfgRT91KG62Mz3, got %s", driveID0)
+	}
+	meta0 := it0[1].([]interface{})
+	mediaKey0 := meta0[0].(string)
+	if mediaKey0 != "AF1QipMjDY09Q2fyOLRqbT9n67ChqorvTboeE2CeuYqP" {
+		t.Errorf("expected mediaKey AF1QipMjDY09Q2fyOLRqbT9n67ChqorvTboeE2CeuYqP, got %s", mediaKey0)
+	}
+	url0 := meta0[1].([]interface{})[0].(string)
+	if !strings.HasPrefix(url0, "https://photos.fife.usercontent.google.com") {
+		t.Errorf("expected fife url, got %s", url0)
+	}
+	w0 := int(meta0[1].([]interface{})[1].(float64))
+	h0 := int(meta0[1].([]interface{})[2].(float64))
+	if w0 != 1920 || h0 != 960 {
+		t.Errorf("expected 1920x960, got %dx%d", w0, h0)
+	}
+	dedup0 := meta0[3].(string)
+	if dedup0 != "QleyGUKTgeHhG39OwuYv-JftvYM" {
+		t.Errorf("expected dedup key QleyGUKTgeHhG39OwuYv-JftvYM, got %s", dedup0)
+	}
+}

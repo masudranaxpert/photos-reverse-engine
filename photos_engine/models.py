@@ -91,3 +91,39 @@ class StorageQuota:
     total_bytes: int = 0
 
 
+@dataclass
+class DriveBatchItem:
+    drive_file_id: str
+    mime_type: str = "video/*"
+
+
+@dataclass
+class DriveImportItemResult:
+    drive_file_id: str
+    media_key: str = ""
+    dedup_key: str = ""
+    download_url: Optional[str] = None
+    width: int = 0
+    height: int = 0
+    file_size: int = 0
+    status: int = 0
+    error: str = ""
+
+
+@dataclass
+class DriveBatchImportResult:
+    success_count: int = 0
+    failed_count: int = 0
+    items: List[DriveImportItemResult] = field(default_factory=list)
+    quota_exceeded: bool = False
+    error_message: str = ""
+
+
+@dataclass
+class AccountResetResult:
+    success: bool
+    total_deleted: int = 0
+    trash_emptied: bool = False
+    message: str = ""
+
+

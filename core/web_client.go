@@ -193,6 +193,25 @@ func (c *WebClient) SendBatchexecute(rpcID string, payloadData interface{}, time
 	return parseBatchexecuteEnvelope(bodyStr, rpcID)
 }
 
+// parseRPCError inspects error structure in batchexecute array index 5
+func parseRPCError(errVal interface{}) error {
+	if errVal == nil {
+		return nil
+	}
+	b, err := json.Marshal(errVal)
+	if err != nil {
+		return fmt.Errorf("RPC error: %v", errVal)
+	}
+	s := string(b)
+	if strings.Contains(s, "PhotosWebImportDriveItemsFailure") || strings.Contains(s, "[8,") || strings.Contains(s, "[8]") {
+		return errors.New("STORAGE_QUOTA_EXCEEDED: Google Photos storage is full (PhotosWebImportDriveItemsFailure)")
+	}
+	if strings.Contains(s, "[13]") || strings.Contains(s, "[13,") {
+		return errors.New("RPC_TIMEOUT: Google Photos RPC deadline/internal timeout exceeded (code 13)")
+	}
+	return fmt.Errorf("RPC_ERROR: %s", s)
+}
+
 func parseBatchexecuteEnvelope(body, rpcID string) (interface{}, error) {
 	lines := strings.Split(body, "\n")
 	var targetLine string
@@ -218,13 +237,30 @@ func parseBatchexecuteEnvelope(body, rpcID string) (interface{}, error) {
 		var flat []interface{}
 		if err2 := json.Unmarshal([]byte(targetLine), &flat); err2 == nil {
 			for _, item := range flat {
-				if itemArr, ok := item.([]interface{}); ok && len(itemArr) >= 3 {
+				if itemArr, ok := item.([]interface{}); ok && len(itemArr) >= 2 {
 					if id, ok := itemArr[1].(string); ok && id == rpcID {
-						if payloadStr, ok := itemArr[2].(string); ok {
+						var rpcErr error
+						if len(itemArr) >= 6 && itemArr[5] != nil {
+							rpcErr = parseRPCError(itemArr[5])
+						}
+						if len(itemArr) >= 3 {
+							payloadStr, ok := itemArr[2].(string)
+							if !ok || payloadStr == "" || payloadStr == "null" {
+								if rpcErr != nil {
+									return nil, rpcErr
+								}
+								return nil, nil
+							}
 							var res interface{}
 							if err3 := json.Unmarshal([]byte(payloadStr), &res); err3 == nil {
+								if rpcErr != nil {
+									return res, rpcErr
+								}
 								return res, nil
 							}
+						}
+						if rpcErr != nil {
+							return nil, rpcErr
 						}
 					}
 				}
@@ -234,25 +270,43 @@ func parseBatchexecuteEnvelope(body, rpcID string) (interface{}, error) {
 	}
 
 	for _, entry := range outer {
-		if len(entry) >= 3 {
+		if len(entry) >= 2 {
 			id, _ := entry[1].(string)
 			if id == rpcID {
-				payloadStr, ok := entry[2].(string)
-				if !ok || payloadStr == "" {
-					return nil, nil
+				var rpcErr error
+				if len(entry) >= 6 && entry[5] != nil {
+					rpcErr = parseRPCError(entry[5])
 				}
-				var res interface{}
-				if err := json.Unmarshal([]byte(payloadStr), &res); err != nil {
-					return nil, fmt.Errorf("failed to unmarshal inner payload string: %w", err)
+				if len(entry) >= 3 {
+					payloadStr, ok := entry[2].(string)
+					if !ok || payloadStr == "" || payloadStr == "null" {
+						if rpcErr != nil {
+							return nil, rpcErr
+						}
+						return nil, nil
+					}
+					var res interface{}
+					if err := json.Unmarshal([]byte(payloadStr), &res); err != nil {
+						if rpcErr != nil {
+							return nil, rpcErr
+						}
+						return nil, fmt.Errorf("failed to unmarshal inner payload string: %w", err)
+					}
+					if rpcErr != nil {
+						return res, rpcErr
+					}
+					return res, nil
 				}
-				return res, nil
+				if rpcErr != nil {
+					return nil, rpcErr
+				}
 			}
 		}
 	}
 
 	for _, entry := range outer {
 		if len(entry) >= 3 {
-			if payloadStr, ok := entry[2].(string); ok && payloadStr != "" {
+			if payloadStr, ok := entry[2].(string); ok && payloadStr != "" && payloadStr != "null" {
 				var res interface{}
 				if err := json.Unmarshal([]byte(payloadStr), &res); err == nil {
 					return res, nil
@@ -276,61 +330,158 @@ func safeGetIndex(data interface{}, indices ...int) interface{} {
 	return curr
 }
 
-// ImportFromDrive imports a Google Drive file into Google Photos via SusGud RPC.
-func (c *WebClient) ImportFromDrive(driveFileID, mimeType string, cleanup bool) (*DriveImportResult, error) {
-	payloadData := []interface{}{
-		[]interface{}{
-			[]interface{}{
-				driveFileID,
-				[]interface{}{mimeType, nil, nil, nil, 1},
-			},
-		},
+// BatchImportFromDrive imports multiple Google Drive files into Google Photos in a single SusGud RPC request.
+func (c *WebClient) BatchImportFromDrive(items []DriveBatchItem, cleanup bool, timeout time.Duration) (*DriveBatchImportResult, error) {
+	if len(items) == 0 {
+		return nil, errors.New("no drive items provided for import")
 	}
 
-	respData, err := c.SendBatchexecute("SusGud", payloadData, 45*time.Second)
-	if err != nil {
-		return nil, fmt.Errorf("SusGud RPC failed: %w", err)
+	if timeout <= 0 {
+		timeout = 120 * time.Second
 	}
 
-	mediaKey, _ := safeGetIndex(respData, 0, 0, 1, 0).(string)
-	dedupKey, _ := safeGetIndex(respData, 0, 0, 1, 3).(string)
-
-	if mediaKey == "" {
-		mediaKey, _ = safeGetIndex(respData, 0, 1, 0).(string)
-		dedupKey, _ = safeGetIndex(respData, 0, 1, 3).(string)
-	}
-	if mediaKey == "" {
-		itemsArr := safeGetIndex(respData, 0)
-		mediaKey, _ = safeGetIndex(itemsArr, 0, 1, 0).(string)
-		dedupKey, _ = safeGetIndex(itemsArr, 0, 1, 3).(string)
-	}
-
-	if mediaKey == "" {
-		return nil, fmt.Errorf("mediaKey not found in SusGud response: %v", respData)
-	}
-
-	result := &DriveImportResult{
-		DriveFileID: driveFileID,
-		MediaKey:    mediaKey,
-		DedupKey:    dedupKey,
-	}
-
-	// Fetch direct download URL via VrseUb
-	if dlInfo, err := c.GetDownloadURL(mediaKey); err == nil {
-		result.DownloadURL = dlInfo.DownloadURL
-		if result.DedupKey == "" {
-			result.DedupKey = dlInfo.DedupKey
+	// Payload format: [[ [ [id1, mime1], [id2, mime2], ... ] ]]
+	drivePairs := make([][]interface{}, 0, len(items))
+	for _, it := range items {
+		mime := it.MimeType
+		if mime == "" {
+			mime = "video/*"
 		}
+		drivePairs = append(drivePairs, []interface{}{it.DriveFileID, mime})
+	}
+	payloadData := []interface{}{
+		drivePairs,
 	}
 
-	// Cleanup if requested
-	if cleanup && result.DedupKey != "" {
-		_ = c.MoveToTrash([]string{result.DedupKey})
+	result := &DriveBatchImportResult{
+		Items: make([]DriveImportItemResult, 0, len(items)),
+	}
+
+	respData, err := c.SendBatchexecute("SusGud", payloadData, timeout)
+	if err != nil {
+		errStr := err.Error()
+		if strings.Contains(errStr, "STORAGE_QUOTA_EXCEEDED") {
+			result.QuotaExceeded = true
+			result.ErrorMessage = "Google Photos storage quota is full. Import failed."
+			result.FailedCount = len(items)
+			for _, it := range items {
+				result.Items = append(result.Items, DriveImportItemResult{
+					DriveFileID: it.DriveFileID,
+					Status:      8,
+					Error:       "Storage quota exceeded",
+				})
+			}
+			return result, err
+		}
+		return nil, fmt.Errorf("SusGud batch import failed: %w", err)
+	}
+
+	// Parse items from response
+	itemsArr := safeGetIndex(respData, 0)
+	list, ok := itemsArr.([]interface{})
+	if !ok {
+		list, _ = respData.([]interface{})
+	}
+
+	var dedupKeysToCleanup []string
+
+	for _, rawItem := range list {
+		sub, ok := rawItem.([]interface{})
+		if !ok || len(sub) == 0 {
+			continue
+		}
+
+		driveID, _ := sub[0].(string)
+		itemRes := DriveImportItemResult{
+			DriveFileID: driveID,
+		}
+
+		if len(sub) > 2 {
+			if st, ok := sub[2].(float64); ok {
+				itemRes.Status = int(st)
+			}
+		}
+
+		meta := safeGetIndex(sub, 1)
+		if metaArr, ok := meta.([]interface{}); ok && len(metaArr) > 0 {
+			itemRes.MediaKey, _ = safeGetIndex(metaArr, 0).(string)
+			itemRes.DedupKey, _ = safeGetIndex(metaArr, 3).(string)
+
+			// URL and dimensions
+			itemRes.DownloadURL, _ = safeGetIndex(metaArr, 1, 0).(string)
+			if w, ok := safeGetIndex(metaArr, 1, 1).(float64); ok {
+				itemRes.Width = int(w)
+			}
+			if h, ok := safeGetIndex(metaArr, 1, 2).(float64); ok {
+				itemRes.Height = int(h)
+			}
+
+			// File size from metadata dictionary
+			if metaDict, ok := safeGetIndex(metaArr, 9).(map[string]interface{}); ok {
+				if sizeArr, ok := metaDict["76647426"].([]interface{}); ok && len(sizeArr) > 0 {
+					if sz, ok := sizeArr[0].(float64); ok {
+						itemRes.FileSize = int64(sz)
+					}
+				}
+			}
+		}
+
+		if itemRes.MediaKey != "" && itemRes.Status == 0 {
+			result.SuccessCount++
+			if itemRes.DedupKey != "" {
+				dedupKeysToCleanup = append(dedupKeysToCleanup, itemRes.DedupKey)
+			}
+		} else {
+			result.FailedCount++
+			if itemRes.Error == "" {
+				itemRes.Error = fmt.Sprintf("Import status %d", itemRes.Status)
+			}
+		}
+
+		result.Items = append(result.Items, itemRes)
+	}
+
+	if cleanup && len(dedupKeysToCleanup) > 0 {
+		_ = c.MoveToTrash(dedupKeysToCleanup)
 		_ = c.EmptyTrash()
 	}
 
 	return result, nil
 }
+
+// ImportFromDrive imports a single Google Drive file into Google Photos via SusGud RPC.
+func (c *WebClient) ImportFromDrive(driveFileID, mimeType string, cleanup bool) (*DriveImportResult, error) {
+	batchRes, err := c.BatchImportFromDrive([]DriveBatchItem{
+		{DriveFileID: driveFileID, MimeType: mimeType},
+	}, cleanup, 60*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	if len(batchRes.Items) == 0 || batchRes.Items[0].MediaKey == "" {
+		return nil, fmt.Errorf("mediaKey not found in SusGud response")
+	}
+
+	item := batchRes.Items[0]
+	res := &DriveImportResult{
+		DriveFileID: item.DriveFileID,
+		MediaKey:    item.MediaKey,
+		DedupKey:    item.DedupKey,
+		DownloadURL: item.DownloadURL,
+	}
+
+	// If download URL wasn't returned in metadata, fetch via VrseUb
+	if res.DownloadURL == "" {
+		if dlInfo, err := c.GetDownloadURL(res.MediaKey); err == nil {
+			res.DownloadURL = dlInfo.DownloadURL
+			if res.DedupKey == "" {
+				res.DedupKey = dlInfo.DedupKey
+			}
+		}
+	}
+
+	return res, nil
+}
+
 
 // GetDownloadURL retrieves direct download URL and dedup key for a mediaKey using VrseUb RPC with photo page fallback.
 func (c *WebClient) GetDownloadURL(mediaKey string) (*DownloadInfo, error) {
@@ -446,6 +597,104 @@ func (c *WebClient) EmptyTrash() error {
 	payloadData := []interface{}{nil, 2}
 	_, err := c.SendBatchexecute("e2FP6c", payloadData, 30*time.Second)
 	return err
+}
+
+// ListLibraryItems enumerates library items via lcxiM RPC.
+// Returns dedupKeys, next_page_id, last_timestamp, error.
+func (c *WebClient) ListLibraryItems(pageSize int, pageID string, lastTimestamp int64) ([]string, string, int64, error) {
+	if pageSize <= 0 {
+		pageSize = 500
+	}
+	var tsVal interface{} = nil
+	if lastTimestamp > 0 {
+		tsVal = lastTimestamp
+	}
+	var pageVal interface{} = nil
+	if pageID != "" {
+		pageVal = pageID
+	}
+
+	// lcxiM: [page_id, timestamp, page_size, nil, 1, 3] (3 = both library and archive)
+	payloadData := []interface{}{pageVal, tsVal, pageSize, nil, 1, 3}
+	respData, err := c.SendBatchexecute("lcxiM", payloadData, 45*time.Second)
+	if err != nil {
+		return nil, "", 0, fmt.Errorf("lcxiM RPC failed: %w", err)
+	}
+
+	itemsArr := safeGetIndex(respData, 0)
+	list, ok := itemsArr.([]interface{})
+	if !ok {
+		return nil, "", 0, nil
+	}
+
+	var dedupKeys []string
+	for _, rawItem := range list {
+		item, ok := rawItem.([]interface{})
+		if !ok || len(item) < 4 {
+			continue
+		}
+		if dedup, ok := item[3].(string); ok && dedup != "" {
+			dedupKeys = append(dedupKeys, dedup)
+		}
+	}
+
+	var nextPID string
+	if np, ok := safeGetIndex(respData, 1).(string); ok {
+		nextPID = np
+	}
+
+	var nextTS int64
+	if ts, ok := safeGetIndex(respData, 2).(float64); ok {
+		nextTS = int64(ts)
+	} else if tsStr, ok := safeGetIndex(respData, 2).(string); ok {
+		nextTS, _ = strconv.ParseInt(tsStr, 10, 64)
+	}
+
+	return dedupKeys, nextPID, nextTS, nil
+}
+
+// ResetAccount clears the Google Photos library: moves all items to trash via XwAOJf, then empties trash via e2FP6c.
+func (c *WebClient) ResetAccount(timeout time.Duration) (*AccountResetResult, error) {
+	totalDeleted := 0
+	pageID := ""
+	var lastTS int64 = 0
+
+	for {
+		keys, nextPID, nextTS, err := c.ListLibraryItems(500, pageID, lastTS)
+		if err != nil {
+			return nil, fmt.Errorf("failed listing library items: %w", err)
+		}
+
+		if len(keys) > 0 {
+			if err := c.MoveToTrash(keys); err != nil {
+				return nil, fmt.Errorf("failed moving items to trash: %w", err)
+			}
+			totalDeleted += len(keys)
+		}
+
+		if nextPID == "" || nextPID == pageID {
+			break
+		}
+		pageID = nextPID
+		lastTS = nextTS
+	}
+
+	// Permanently empty trash
+	if err := c.EmptyTrash(); err != nil {
+		return &AccountResetResult{
+			Success:      true,
+			TotalDeleted: totalDeleted,
+			TrashEmptied: false,
+			Message:      fmt.Sprintf("Moved %d items to trash, but emptying trash returned: %v", totalDeleted, err),
+		}, nil
+	}
+
+	return &AccountResetResult{
+		Success:      true,
+		TotalDeleted: totalDeleted,
+		TrashEmptied: true,
+		Message:      fmt.Sprintf("Successfully removed %d items from library and permanently emptied trash.", totalDeleted),
+	}, nil
 }
 
 // GetStorageQuota fetches storage quota information from Google Photos quota management.

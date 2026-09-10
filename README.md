@@ -80,6 +80,21 @@ print("Deleted:", success)
 web_client = photos_engine.NativeWebClient(cookies=open("cookies.txt").read())
 quota = web_client.get_storage_quota()
 print(f"Storage: {quota.usage_text} ({quota.used_percent}% used)")
+
+# 8. Batch Import Google Drive Files (with Storage Quota Detection)
+batch_res = web_client.batch_import_from_drive([
+    {"drive_file_id": "173o1kBve_RiXmI2ECCrfgRT91KG62Mz3", "mime_type": "video/x-matroska"},
+    {"drive_file_id": "1TjQP3B7gw1tEkNPJbmalIbYDVWlxggXH", "mime_type": "video/x-matroska"},
+])
+if batch_res.quota_exceeded:
+    print("Warning: Storage quota full! Google Photos rejected import.")
+else:
+    for item in batch_res.items:
+        print(f"Imported: {item.drive_file_id} -> MediaKey: {item.media_key}")
+
+# 9. Complete Account Library Reset / Wipe
+reset_res = web_client.reset_account()
+print(f"Account Reset: {reset_res.total_deleted} items removed, trash emptied: {reset_res.trash_emptied}")
 ```
 
 ---
@@ -175,6 +190,12 @@ photos-engine delete AF1QipM7Z...
 # Check Google Photos account storage quota
 photos-engine quota -c cookies.txt
 photos-engine quota -c cookies.txt --json
+
+# Import one or multiple Google Drive files in a single batch
+photos-engine drive-import 173o1kBve_... 1TjQP3B7g... -c cookies.txt
+
+# Reset / wipe Google Photos library completely and empty trash
+photos-engine reset-account -c cookies.txt --confirm
 ```
 
 ---

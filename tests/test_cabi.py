@@ -90,6 +90,32 @@ class TestCAbiFixes(unittest.TestCase):
         self.assertFalse(res.get("success"))
         self.assertIn("client handle not found", res.get("error", ""))
 
+    def test_gpwc_batch_import_cabi(self):
+        """Verify GPWC_BatchImportFromDrive C-ABI export exists."""
+        self.assertTrue(hasattr(self.lib, "GPWC_BatchImportFromDrive"))
+        self.lib.GPWC_BatchImportFromDrive.argtypes = [ctypes.c_ulonglong, ctypes.c_char_p, ctypes.c_int, ctypes.c_longlong]
+        self.lib.GPWC_BatchImportFromDrive.restype = ctypes.c_void_p
+        raw_ptr = self.lib.GPWC_BatchImportFromDrive(99999999, b"[]", 0, 1000)
+        self.assertTrue(bool(raw_ptr))
+        json_str = ctypes.string_at(raw_ptr).decode("utf-8")
+        self.lib.GPMC_FreeString(raw_ptr)
+        res = json.loads(json_str)
+        self.assertFalse(res.get("success"))
+        self.assertIn("client handle not found", res.get("error", ""))
+
+    def test_gpwc_reset_account_cabi(self):
+        """Verify GPWC_ResetAccount C-ABI export exists."""
+        self.assertTrue(hasattr(self.lib, "GPWC_ResetAccount"))
+        self.lib.GPWC_ResetAccount.argtypes = [ctypes.c_ulonglong, ctypes.c_longlong]
+        self.lib.GPWC_ResetAccount.restype = ctypes.c_void_p
+        raw_ptr = self.lib.GPWC_ResetAccount(99999999, 1000)
+        self.assertTrue(bool(raw_ptr))
+        json_str = ctypes.string_at(raw_ptr).decode("utf-8")
+        self.lib.GPMC_FreeString(raw_ptr)
+        res = json.loads(json_str)
+        self.assertFalse(res.get("success"))
+        self.assertIn("client handle not found", res.get("error", ""))
+
 
 if __name__ == "__main__":
     unittest.main()

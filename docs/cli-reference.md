@@ -144,22 +144,61 @@ Message    : Cookies are valid (Account: user@gmail.com).
 ---
 
 ### `drive-import`
-Imports a file from Google Drive directly into Google Photos via internal web RPCs, automatically outputs the direct download URL, and optionally moves it to trash upon completion.
+Imports one or more files from Google Drive directly into Google Photos in a single batch RPC request, retrieves direct download URLs, and optionally moves them to trash upon completion.
 
 ```bash
-# Import Google Drive file ID
+# Import a single Google Drive file ID
 photos-engine drive-import 1A2B3C4D5E6F7G8H9I0J
 
-# Import and auto-cleanup from Photos trash
-photos-engine drive-import 1A2B3C4D5E6F7G8H9I0J --cleanup --json
+# Import multiple Google Drive files in a single batch
+photos-engine drive-import 1A2B3C4D... 1TjQP3B... 1H2E0dw... -c cookies.txt
+
+# Import with auto-cleanup (trash and purge) and custom timeout
+photos-engine drive-import 1A2B3C... --cleanup --timeout 180 --json
+```
+
+**Options**:
+- `--cleanup`: Move imported items to trash and permanently empty trash after resolving download URLs.
+- `--timeout`: Timeout in seconds for the batch import operation (default: 120s).
+- `--cookies-file`, `-c`: Path to Netscape or JSON cookies file.
+
+**Example Output**:
+```text
+Success Count : 3
+Failed Count  : 0
+[1] 173o1kBve_... -> OK
+    Media Key    : AF1QipMjDY09Q2fyOLRqbT9n67ChqorvTboeE2CeuYqP
+    Dedup Key    : QleyGUKTgeHhG39OwuYv-JftvYM
+    Download URL : https://photos.fife.usercontent.google.com/pw/...
+    Resolution   : 1920x960
+    File Size    : 7056840 bytes
+[2] 1TjQP3B7gw... -> OK
+    Media Key    : AF1QipM29VPaagOBq3zW_IMTith5S-oOVSKvuW2PUFyu
+    Resolution   : 1920x1080
+    File Size    : 13192743 bytes
+```
+
+---
+
+### `reset-account`
+Wipes the entire Google Photos library: enumerates all photos and videos (including archive), moves them in batches to trash, and permanently empties the trash.
+
+> **Caution**: This operation is irreversible and permanently deletes all media in the account. The `--confirm` flag is strictly required.
+
+```bash
+# Reset library (requires explicit confirmation)
+photos-engine reset-account -c cookies.txt --confirm
+
+# Reset library with JSON output
+photos-engine reset-account -c cookies.txt --confirm --json
 ```
 
 **Example Output**:
 ```text
-Drive File ID : 1A2B3C4D5E6F7G8H9I0J
-Media Key     : AF1QipM7Z...
-Dedup Key     : qUqP5cyx...
-Download URL  : https://video-downloads.googleusercontent.com/...
+Success       : True
+Total Deleted : 124 item(s)
+Trash Emptied : True
+Status        : Successfully removed 124 items from library and permanently emptied trash.
 ```
 
 ---

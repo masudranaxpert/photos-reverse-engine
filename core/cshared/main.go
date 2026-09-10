@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -365,6 +366,39 @@ func GPWC_GetStorageQuota(handle C.ulonglong) *C.char {
 	}
 	quota, err := client.GetStorageQuota()
 	return jsonResponse(quota, err)
+}
+
+//export GPWC_BatchImportFromDrive
+func GPWC_BatchImportFromDrive(handle C.ulonglong, cItemsJSON *C.char, cleanup C.int, timeoutMs C.longlong) *C.char {
+	client := getWebClient(uint64(handle))
+	if client == nil {
+		return jsonResponse(nil, errors.New("client handle not found"))
+	}
+	itemsRaw := C.GoString(cItemsJSON)
+	var items []pe.DriveBatchItem
+	if err := json.Unmarshal([]byte(itemsRaw), &items); err != nil {
+		return jsonResponse(nil, fmt.Errorf("failed to parse items JSON: %w", err))
+	}
+	timeout := 120 * time.Second
+	if timeoutMs > 0 {
+		timeout = time.Duration(timeoutMs) * time.Millisecond
+	}
+	res, err := client.BatchImportFromDrive(items, cleanup != 0, timeout)
+	return jsonResponse(res, err)
+}
+
+//export GPWC_ResetAccount
+func GPWC_ResetAccount(handle C.ulonglong, timeoutMs C.longlong) *C.char {
+	client := getWebClient(uint64(handle))
+	if client == nil {
+		return jsonResponse(nil, errors.New("client handle not found"))
+	}
+	timeout := 120 * time.Second
+	if timeoutMs > 0 {
+		timeout = time.Duration(timeoutMs) * time.Millisecond
+	}
+	res, err := client.ResetAccount(timeout)
+	return jsonResponse(res, err)
 }
 
 

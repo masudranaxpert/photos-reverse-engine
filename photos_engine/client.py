@@ -10,8 +10,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 from .models import (
+    AccountResetResult,
     CookieStatus,
     DownloadInfo,
+    DriveBatchImportResult,
+    DriveBatchItem,
+    DriveImportItemResult,
     DriveImportResult,
     ExistResult,
     PublicShareLink,
@@ -456,6 +460,14 @@ class NativeWebClient:
         self._lib.GPWC_CreateShareLink.argtypes = [c_ull, c_char_p]
         self._lib.GPWC_CreateShareLink.restype = c_void_p
 
+        if hasattr(self._lib, "GPWC_BatchImportFromDrive"):
+            self._lib.GPWC_BatchImportFromDrive.argtypes = [c_ull, c_char_p, ctypes.c_int, ctypes.c_longlong]
+            self._lib.GPWC_BatchImportFromDrive.restype = c_void_p
+
+        if hasattr(self._lib, "GPWC_ResetAccount"):
+            self._lib.GPWC_ResetAccount.argtypes = [c_ull, ctypes.c_longlong]
+            self._lib.GPWC_ResetAccount.restype = c_void_p
+
         self._lib.GPMC_FreeString.argtypes = [c_void_p]
         self._lib.GPMC_FreeString.restype = None
 
@@ -534,6 +546,72 @@ class NativeWebClient:
             free_percent=float(data.get("free_percent", 0.0)),
             used_bytes=int(data.get("used_bytes", 0)),
             total_bytes=int(data.get("total_bytes", 0)),
+        )
+
+    def batch_import_from_drive(
+        self,
+        items: List[Any],
+        cleanup: bool = False,
+        timeout_ms: int = 120000,
+    ) -> DriveBatchImportResult:
+        """Batch import multiple Google Drive files via Go core SusGud RPC."""
+        parsed_items = []
+        for it in items:
+            if hasattr(it, "drive_file_id") and hasattr(it, "mime_type"):
+                parsed_items.append({"drive_file_id": it.drive_file_id, "mime_type": it.mime_type})
+            elif isinstance(it, dict):
+                parsed_items.append({
+                    "drive_file_id": it.get("drive_file_id", it.get("id", "")),
+                    "mime_type": it.get("mime_type", it.get("mime", "video/*")),
+                })
+            elif isinstance(it, (list, tuple)):
+                parsed_items.append({
+                    "drive_file_id": it[0],
+                    "mime_type": it[1] if len(it) > 1 else "video/*",
+                })
+            else:
+                parsed_items.append({"drive_file_id": str(it), "mime_type": "video/*"})
+
+        items_json = json.dumps(parsed_items)
+        data = self._call(
+            self._lib.GPWC_BatchImportFromDrive,
+            items_json.encode("utf-8"),
+            1 if cleanup else 0,
+            timeout_ms,
+        )
+
+        item_results = []
+        for raw_it in data.get("items", []):
+            item_results.append(
+                DriveImportItemResult(
+                    drive_file_id=raw_it.get("drive_file_id", ""),
+                    media_key=raw_it.get("media_key", ""),
+                    dedup_key=raw_it.get("dedup_key", ""),
+                    download_url=raw_it.get("download_url"),
+                    width=raw_it.get("width", 0),
+                    height=raw_it.get("height", 0),
+                    file_size=raw_it.get("file_size", 0),
+                    status=raw_it.get("status", 0),
+                    error=raw_it.get("error", ""),
+                )
+            )
+
+        return DriveBatchImportResult(
+            success_count=data.get("success_count", 0),
+            failed_count=data.get("failed_count", 0),
+            items=item_results,
+            quota_exceeded=data.get("quota_exceeded", False),
+            error_message=data.get("error_message", ""),
+        )
+
+    def reset_account(self, timeout_ms: int = 120000) -> AccountResetResult:
+        """Clear entire Google Photos library: moves all items to trash via XwAOJf and empties trash via e2FP6c."""
+        data = self._call(self._lib.GPWC_ResetAccount, timeout_ms)
+        return AccountResetResult(
+            success=data.get("success", False),
+            total_deleted=data.get("total_deleted", 0),
+            trash_emptied=data.get("trash_emptied", False),
+            message=data.get("message", ""),
         )
 
 

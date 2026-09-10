@@ -228,11 +228,27 @@ Retrieves direct download URL and deduplication key using web RPC `VrseUb` (`Get
 func (c *WebClient) CreateShareLink(mediaKey string) (*PublicShareLink, error)
 ```
 
-Generates a public `photos.app.goo.gl` link using web RPC `SFKp8c`.
+#### `BatchImportFromDrive()` (Web)
+
+```go
+func (c *WebClient) BatchImportFromDrive(items []DriveBatchItem, cleanup bool, timeout time.Duration) (*DriveBatchImportResult, error)
+```
+
+Imports multiple Google Drive files in a single `SusGud` RPC request with proactive quota full detection (`STORAGE_QUOTA_EXCEEDED`).
 
 ---
 
-### Go Example: Cookie Validation & Drive Import
+#### `ResetAccount()` (Web)
+
+```go
+func (c *WebClient) ResetAccount(timeout time.Duration) (*AccountResetResult, error)
+```
+
+Paginates and moves all items in the library and archive to trash via `XwAOJf` and permanently purges trash via `e2FP6c`.
+
+---
+
+### Go Example: Cookie Validation, Batch Drive Import & Reset
 
 ```go
 package main
@@ -241,12 +257,12 @@ import (
     "fmt"
     "log"
     "os"
+    "time"
 
     "github.com/masudranaxpert/photos-reverse-engine/core"
 )
 
 func main() {
-    // 1. Read cookies from cookies.txt (Netscape or JSON)
     rawCookies, err := os.ReadFile("cookies.txt")
     if err != nil {
         log.Fatalf("Failed to read cookies.txt: %v", err)
@@ -257,34 +273,33 @@ func main() {
         log.Fatalf("Failed to parse cookies: %v", err)
     }
 
-    // 2. Validate cookie status and account email
-    status, err := core.CheckCookieStatus(cookie)
-    if err != nil || !status.Valid {
-        log.Fatalf("Cookies invalid: %v", err)
-    }
-    fmt.Printf("Cookies valid! Logged-in Account: %s\n", status.Account)
-
-    // 3. Initialize Web Client
     webClient, err := core.NewWebClient(cookie)
     if err != nil {
         log.Fatalf("Failed to initialize web client: %v", err)
     }
 
-    // 4. Check Google Photos Account Storage Quota
+    // Check storage quota
     quota, err := webClient.GetStorageQuota()
     if err == nil {
-        fmt.Printf("Storage: %s (%.1f%% used, %.1f%% free)\n", quota.UsageText, quota.UsedPercent, quota.FreePercent)
+        fmt.Printf("Storage: %s (%.1f%% used)\n", quota.UsageText, quota.UsedPercent)
     }
 
-    // 5. Import Google Drive file directly into Google Photos
-    driveFileID := "1A2B3C4D5E6F7G8H9I0J"
-    result, err := webClient.ImportFromDrive(driveFileID, "video/*", true)
+    // Batch Import multiple Google Drive files
+    batchRes, err := webClient.BatchImportFromDrive([]core.DriveBatchItem{
+        {DriveFileID: "173o1kBve_...", MimeType: "video/x-matroska"},
+        {DriveFileID: "1TjQP3B7gw...", MimeType: "video/x-matroska"},
+    }, false, 120*time.Second)
+
     if err != nil {
-        log.Fatalf("Drive import failed: %v", err)
+        log.Fatalf("Batch import error: %v", err)
     }
+    fmt.Printf("Imported %d items successfully!\n", batchRes.SuccessCount)
 
-    fmt.Printf("Imported MediaKey: %s\n", result.MediaKey)
-    fmt.Printf("Direct Download URL: %s\n", result.DownloadURL)
+    // Complete account wipe / reset
+    resetRes, err := webClient.ResetAccount(180 * time.Second)
+    if err == nil {
+        fmt.Printf("Account Reset: %d items deleted, trash emptied: %v\n", resetRes.TotalDeleted, resetRes.TrashEmptied)
+    }
 }
 ```
 
@@ -315,6 +330,29 @@ type StorageQuota struct {
     FreePercent  float64 `json:"free_percent"`  // e.g. 38.3
     UsedBytes    int64   `json:"used_bytes"`    // in bytes
     TotalBytes   int64   `json:"total_bytes"`   // in bytes
+}
+```
+
+### `DriveBatchImportResult`
+
+```go
+type DriveBatchImportResult struct {
+    SuccessCount  int                     `json:"success_count"`
+    FailedCount   int                     `json:"failed_count"`
+    Items         []DriveImportItemResult `json:"items"`
+    QuotaExceeded bool                    `json:"quota_exceeded"`
+    ErrorMessage  string                  `json:"error_message,omitempty"`
+}
+```
+
+### `AccountResetResult`
+
+```go
+type AccountResetResult struct {
+    Success      bool   `json:"success"`
+    TotalDeleted int    `json:"total_deleted"`
+    TrashEmptied bool   `json:"trash_emptied"`
+    Message      string `json:"message"`
 }
 ```
 
