@@ -8,13 +8,12 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 from typing import List
 
 from photos_engine import (
     Client,
-    DatabaseCookieStore,
-    FileCookieStore,
-    GooglePhotosWebClient,
+    NativeWebClient,
     create_share_link,
     delete_by_media_key,
     get_download_url,
@@ -142,37 +141,39 @@ def _cmd_check(args):
             print(f"Dedup Key    : {result.dedup_key}")
 
 
+def _read_cookies(path_or_str: str) -> str:
+    p = Path(path_or_str)
+    if p.is_file():
+        return p.read_text(encoding="utf-8")
+    return path_or_str
+
+
 def _cmd_cookies_check(args):
     """Verify stored cookies validity and retrieve logged-in account email."""
-    client = GooglePhotosWebClient(cookies_file=args.cookies_file)
-    try:
-        status = client.check_status(session_id=args.session)
-        if args.json:
-            print(json.dumps({
-                "valid": status.valid,
-                "session_id": status.session_id,
-                "account": status.account,
-                "message": status.message,
-            }, indent=2))
-        else:
-            print(f"Session ID : {status.session_id}")
-            print(f"Valid      : {'YES' if status.valid else 'NO'}")
-            print(f"Account    : {status.account or 'N/A'}")
-            print(f"Message    : {status.message}")
-        if not status.valid:
-            sys.exit(1)
-    finally:
-        client.close()
+    cookies_data = _read_cookies(args.cookies_file)
+    status = NativeWebClient.check_status(cookies_data)
+    if args.json:
+        print(json.dumps({
+            "valid": status.valid,
+            "account": status.account,
+            "message": status.message,
+        }, indent=2))
+    else:
+        print(f"Valid      : {'YES' if status.valid else 'NO'}")
+        print(f"Account    : {status.account or 'N/A'}")
+        print(f"Message    : {status.message}")
+    if not status.valid:
+        sys.exit(1)
 
 
 def _cmd_drive_import(args):
     """Import a Google Drive file into Google Photos and fetch download URL."""
-    client = GooglePhotosWebClient(cookies_file=args.cookies_file)
+    cookies_data = _read_cookies(args.cookies_file)
+    client = NativeWebClient(cookies=cookies_data)
     try:
         print(f"Importing Drive file ID: {args.drive_file_id} ...")
         res = client.import_from_drive(
             drive_file_id=args.drive_file_id,
-            session_id=args.session,
             cleanup=args.cleanup,
         )
         if args.json:

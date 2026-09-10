@@ -1,0 +1,8 @@
+# Language overrides for GitHub Linguist
+tests/* linguist-documentation
+docs/* linguist-documentation
+examples/* linguist-documentation
+build_engine.py linguist-vendored
+save.py linguist-documentation
+site/* linguist-vendored
+*.lock linguist-vendored

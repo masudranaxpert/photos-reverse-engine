@@ -43,6 +43,28 @@ class TestCAbiFixes(unittest.TestCase):
         self.assertIn("GPWC_CreateClient failed", str(ctx.exception))
         self.assertIn("no valid Google auth cookies found", str(ctx.exception))
 
+    def test_gpwc_check_status_invalid_cookie(self):
+        """Verify NativeWebClient.check_status cleanly returns valid=False for empty or bad cookies."""
+        status = NativeWebClient.check_status("bad_cookies")
+        self.assertFalse(status.valid)
+        self.assertTrue(len(status.message) > 0)
+
+    def test_gpwc_valid_netscape_cookie_instantiation(self):
+        """Verify NativeWebClient can initialize with valid netscape cookie string."""
+        netscape_str = (
+            "# Netscape HTTP Cookie File\n"
+            ".google.com\tTRUE\t/\tTRUE\t1750000000\tSID\tsid_value_123\n"
+            ".google.com\tTRUE\t/\tTRUE\t1750000000\t__Secure-1PSID\tsec_psid_value\n"
+        )
+        # Initialization will try to connect to Google photos.google.com to get global tokens
+        # It should either succeed or raise a network error, NOT a parse error
+        try:
+            client = NativeWebClient(cookies=netscape_str)
+            client.close()
+        except RuntimeError as exc:
+            # If network is unreachable, it raises network error, but cookie parsing succeeded
+            self.assertNotIn("no valid Google auth cookies found", str(exc))
+
 
 if __name__ == "__main__":
     unittest.main()
