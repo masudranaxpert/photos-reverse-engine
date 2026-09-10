@@ -531,7 +531,7 @@ func (c *WebClient) GetDownloadURL(mediaKey string) (*DownloadInfo, error) {
 
 // CreateShareLink creates public photos.app.goo.gl link via Go core SFKp8c RPC.
 func (c *WebClient) CreateShareLink(mediaKey string) (*PublicShareLink, error) {
-	payload := fmt.Sprintf(`[null,null,null,null,null,null,null,null,["%s"]]`, mediaKey)
+	payload := fmt.Sprintf(`[null,null,[null,1,null,null,1,null,[[[1,1],0],[[1,2],0],[[2,1],1],[[2,2],1],[[3,1],1]]],[2,null,[[["%s"]]],null,null,null,[1],0,null,null,null,null,null,0],null,null,null,null,[1,2,3,5,6]]`, mediaKey)
 	envelope := fmt.Sprintf(`[[["SFKp8c","%s",null,"generic"]]]`, strings.ReplaceAll(payload, `"`, `\"`))
 
 	form := url.Values{}

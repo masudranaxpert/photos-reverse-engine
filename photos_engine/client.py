@@ -460,6 +460,10 @@ class NativeWebClient:
         self._lib.GPWC_CreateShareLink.argtypes = [c_ull, c_char_p]
         self._lib.GPWC_CreateShareLink.restype = c_void_p
 
+        if hasattr(self._lib, "GPWC_GetStorageQuota"):
+            self._lib.GPWC_GetStorageQuota.argtypes = [c_ull]
+            self._lib.GPWC_GetStorageQuota.restype = c_void_p
+
         if hasattr(self._lib, "GPWC_BatchImportFromDrive"):
             self._lib.GPWC_BatchImportFromDrive.argtypes = [c_ull, c_char_p, ctypes.c_int, ctypes.c_longlong]
             self._lib.GPWC_BatchImportFromDrive.restype = c_void_p
