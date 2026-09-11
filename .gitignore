@@ -115,6 +115,7 @@ photos_engine/go.mod
 photos_engine/go.sum
 photos_engine/uv.lock
 
-# Ensure runtime native binaries in photos_engine/lib are always tracked
+# Ensure runtime native binaries in photos_engine/lib and env example are always tracked
 !photos_engine/photos_engine/lib/
 !photos_engine/photos_engine/lib/*
+!photos_engine/.env.example
