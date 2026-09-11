@@ -397,6 +397,74 @@ func (c *Client) FindMediaByHash(ctx context.Context, sha1Bytes []byte) (*ExistR
 	return res, nil
 }
 
+// GetStreamManifest fetches the video streaming manifest (HLS or DASH) for a given media key.
+func (c *Client) GetStreamManifest(ctx context.Context, mediaKey string, protocol string, contentVersion int64) (string, error) {
+	if mediaKey == "" {
+		return "", fmt.Errorf("mediaKey cannot be empty")
+	}
+	if protocol == "" {
+		protocol = "hls"
+	}
+	if protocol != "hls" && protocol != "dash" {
+		return "", fmt.Errorf("invalid streaming protocol %q: must be 'hls' or 'dash'", protocol)
+	}
+
+	token, err := c.tokenManager.GetToken(ctx)
+	if err != nil {
+		return "", fmt.Errorf("failed to get access token: %w", err)
+	}
+
+	url := fmt.Sprintf("https://lh3.googleusercontent.com/p/%s%%3Dmm%%2C%s-vm", mediaKey, protocol)
+	if contentVersion > 0 {
+		url += fmt.Sprintf("-iv%d", contentVersion)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create stream manifest request: %w", err)
+	}
+
+	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set("User-Agent", c.userAgent)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("stream manifest request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := readBody(resp)
+	if err != nil {
+		return "", fmt.Errorf("failed to read stream manifest response: %w", err)
+	}
+
+	// Retry once on 401 Unauthorized by invalidating token
+	if resp.StatusCode == http.StatusUnauthorized {
+		c.tokenManager.Invalidate()
+		token, err = c.tokenManager.GetToken(ctx)
+		if err == nil {
+			req.Header.Set("Authorization", "Bearer "+token)
+			if retryResp, err := c.httpClient.Do(req); err == nil {
+				defer retryResp.Body.Close()
+				if retryResp.StatusCode == http.StatusOK {
+					b, err := readBody(retryResp)
+					if err != nil {
+						return "", err
+					}
+					return string(b), nil
+				}
+			}
+		}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("stream manifest returned error status %d: %s", resp.StatusCode, string(respBytes))
+	}
+
+	return string(respBytes), nil
+}
+
 func urlSafeBase64(b []byte) string {
 	encoded := base64.StdEncoding.EncodeToString(b)
 	encoded = strings.ReplaceAll(encoded, "+", "-")

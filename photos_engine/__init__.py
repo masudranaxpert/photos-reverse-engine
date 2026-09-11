@@ -106,6 +106,32 @@ async def import_share_url_async(
     return await _get_default_client(auth_data).import_share_url_async(share_url, timeout=timeout)
 
 
+def get_stream_manifest(
+    media_key: str,
+    protocol: str = "hls",
+    content_version: Optional[int] = None,
+    auth_data: Optional[str] = None,
+    timeout: Optional[float] = None,
+) -> str:
+    """Fetch streaming video manifest (HLS .m3u8 or DASH .mpd)."""
+    return _get_default_client(auth_data).get_stream_manifest(
+        media_key, protocol=protocol, content_version=content_version, timeout=timeout
+    )
+
+
+async def get_stream_manifest_async(
+    media_key: str,
+    protocol: str = "hls",
+    content_version: Optional[int] = None,
+    auth_data: Optional[str] = None,
+    timeout: Optional[float] = None,
+) -> str:
+    """Fetch streaming video manifest asynchronously via native goroutine."""
+    return await _get_default_client(auth_data).get_stream_manifest_async(
+        media_key, protocol=protocol, content_version=content_version, timeout=timeout
+    )
+
+
 __all__ = [
     "Client",
     "PhotosEngineClient",
@@ -116,6 +142,8 @@ __all__ = [
     "get_token_async",
     "get_download_url",
     "get_download_url_async",
+    "get_stream_manifest",
+    "get_stream_manifest_async",
     "create_share_link",
     "create_share_link_async",
     "import_share_url",

@@ -64,7 +64,11 @@ dl = photos_engine.get_download_url("AF1QipM...")
 print(f"File: {dl.filename} ({dl.file_size / (1024*1024):.2f} MB)")
 print("Stream URL:", dl.download_url)
 
-# 4. Import Shared Album with Pixel XL Spoofing
+# 4. Fetch Streaming Video Manifest (HLS .m3u8 or DASH .mpd)
+manifest = photos_engine.get_stream_manifest("AF1QipM...", protocol="hls")
+print("HLS Manifest length:", len(manifest))
+
+# 5. Import Shared Album with Pixel XL Spoofing
 res = photos_engine.import_share_url("https://photos.app.goo.gl/abcdef12345")
 print("Saved Media Keys:", res["import_result"].new_keys)
 

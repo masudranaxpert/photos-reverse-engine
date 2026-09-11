@@ -98,6 +98,36 @@ Extracts original-quality media stream download URLs, file metadata, exact byte 
 
 ---
 
+### `get_stream_manifest()`
+
+```python
+photos_engine.get_stream_manifest(
+    media_key: str,
+    protocol: Literal["hls", "dash"] = "hls",
+    content_version: Optional[int] = None,
+    auth_data: Optional[str] = None,
+    timeout: Optional[float] = None,
+) -> str
+```
+
+Fetches the streaming manifest for a video item (HLS `.m3u8` playlist or DASH `.mpd` XML).
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `media_key` | `str` | *required* | Target video item's media key. |
+| `protocol` | `"hls" \| "dash"` | `"hls"` | Streaming protocol format (`"hls"` or `"dash"`). |
+| `content_version` | `int, optional` | `None` | Content version identifier. Omit for original content manifest. |
+| `auth_data` | `str, optional` | `None` | Custom credentials string. |
+| `timeout` | `float, optional` | `None` | Request timeout in seconds. |
+
+**Returns:**
+
+* `str`: Raw streaming manifest text content.
+
+---
+
 ### `import_share_url()`
 
 ```python
@@ -201,6 +231,8 @@ Client(auth_data: Optional[str] = None, lib_path: Optional[str] = None)
 | `await client.create_share_link_async(...)` | `PublicShareLink` | Create public short link asynchronously via native Go Goroutine. |
 | `client.get_download_url(media_key)` | `DownloadInfo` | Get direct stream download URL and metadata. |
 | `await client.get_download_url_async(...)` | `DownloadInfo` | Get direct stream download URL asynchronously via native Go Goroutine. |
+| `client.get_stream_manifest(media_key, ...)` | `str` | Fetch streaming manifest (HLS/DASH) for video. |
+| `await client.get_stream_manifest_async(...)` | `str` | Fetch streaming manifest asynchronously via native Go Goroutine. |
 | `client.import_share_url(share_url)` | `dict` | Scrape and save shared link with Pixel XL spoofing. |
 | `await client.import_share_url_async(...)` | `dict` | Scrape and save shared link asynchronously via native Go Goroutine. |
 | `client.import_shared_media(...)` | `SaveResult` | Low-level import of media keys with auth key. |

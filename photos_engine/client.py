@@ -10,7 +10,7 @@ import platform
 import threading
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 from .models import (
     AccountResetResult,
@@ -268,6 +268,10 @@ def _setup_async_lib(lib: ctypes.CDLL) -> None:
         lib.GPMC_GetDownloadURL_Async.argtypes = [c_ull, c_char_p, c_ll, c_i64]
         lib.GPMC_GetDownloadURL_Async.restype = None
 
+    if hasattr(lib, "GPMC_GetStreamManifest_Async"):
+        lib.GPMC_GetStreamManifest_Async.argtypes = [c_ull, c_char_p, c_char_p, c_ll, c_ll, c_i64]
+        lib.GPMC_GetStreamManifest_Async.restype = None
+
     if hasattr(lib, "GPMC_CreateShareLink_Async"):
         lib.GPMC_CreateShareLink_Async.argtypes = [c_ull, c_char_p, c_ll, c_i64]
         lib.GPMC_CreateShareLink_Async.restype = None
@@ -384,6 +388,10 @@ class PhotosEngineClient:
         self._lib.GPMC_GetDownloadURL.argtypes = [c_ull, c_char_p, c_ll]
         self._lib.GPMC_GetDownloadURL.restype = c_void_p
 
+        if hasattr(self._lib, "GPMC_GetStreamManifest"):
+            self._lib.GPMC_GetStreamManifest.argtypes = [c_ull, c_char_p, c_char_p, c_ll, c_ll]
+            self._lib.GPMC_GetStreamManifest.restype = c_void_p
+
         self._lib.GPMC_CreateAlbum.argtypes = [c_ull, c_char_p, c_char_p, c_ll]
         self._lib.GPMC_CreateAlbum.restype = c_void_p
 
@@ -437,6 +445,38 @@ class PhotosEngineClient:
             sha1_hex=data.get("sha1_hex", ""),
             dedup_key=data.get("dedup_key", ""),
         )
+
+    def get_stream_manifest(
+        self,
+        media_key: str,
+        protocol: Literal["hls", "dash"] = "hls",
+        content_version: Optional[int] = None,
+        timeout: Optional[float] = None,
+    ) -> str:
+        """
+        Fetch the streaming video manifest (HLS .m3u8 or DASH .mpd) for a given media key.
+
+        Args:
+            media_key: Target video item's media key.
+            protocol: Streaming protocol format ('hls' or 'dash'). Defaults to 'hls'.
+            content_version: Optional content version. Without it, manifest represents original content.
+            timeout: Optional request timeout in seconds.
+
+        Returns:
+            str: The streaming manifest content.
+        """
+        if protocol not in ("hls", "dash"):
+            raise ValueError(f"protocol must be 'hls' or 'dash', got {protocol!r}")
+        cv = int(content_version) if content_version is not None else 0
+        timeout_ms = int(timeout * 1000) if timeout else 0
+        raw_ptr = self._lib.GPMC_GetStreamManifest(
+            self._handle,
+            media_key.encode("utf-8"),
+            protocol.encode("utf-8"),
+            ctypes.c_longlong(cv),
+            ctypes.c_longlong(timeout_ms),
+        )
+        return str(_parse_c_json(self._lib, raw_ptr, "GPMC_GetStreamManifest"))
 
     def create_album(self, album_name: str, media_keys: List[str], timeout: Optional[float] = None) -> ShareInfo:
         """Create a shared album containing the specified media keys."""
@@ -595,6 +635,43 @@ class PhotosEngineClient:
             sha1_hex=data.get("sha1_hex", ""),
             dedup_key=data.get("dedup_key", ""),
         )
+
+    async def get_stream_manifest_async(
+        self,
+        media_key: str,
+        protocol: Literal["hls", "dash"] = "hls",
+        content_version: Optional[int] = None,
+        timeout: Optional[float] = None,
+    ) -> str:
+        """
+        Fetch the streaming video manifest asynchronously using native Go goroutines.
+
+        Args:
+            media_key: Target video item's media key.
+            protocol: Streaming protocol format ('hls' or 'dash'). Defaults to 'hls'.
+            content_version: Optional content version.
+            timeout: Optional request timeout in seconds.
+
+        Returns:
+            str: The streaming manifest content.
+        """
+        if protocol not in ("hls", "dash"):
+            raise ValueError(f"protocol must be 'hls' or 'dash', got {protocol!r}")
+        cv = int(content_version) if content_version is not None else 0
+        _setup_async_lib(self._lib)
+        manager = _get_async_manager()
+        callback_id, future = manager.register_request(self._lib)
+        timeout_ms = int(timeout * 1000) if timeout else 0
+        self._lib.GPMC_GetStreamManifest_Async(
+            self._handle,
+            media_key.encode("utf-8"),
+            protocol.encode("utf-8"),
+            ctypes.c_longlong(cv),
+            ctypes.c_longlong(timeout_ms),
+            ctypes.c_int64(callback_id),
+        )
+        data = await future
+        return str(data)
 
     async def create_share_link_async(self, media_keys: Union[str, List[str]], timeout: Optional[float] = None) -> PublicShareLink:
         """Generate a public photos.app.goo.gl link asynchronously using Go goroutines."""

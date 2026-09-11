@@ -247,6 +247,20 @@ func GPMC_GetDownloadURL(handle C.ulonglong, cMediaKey *C.char, timeoutMs C.long
 	return jsonResponse(info, err)
 }
 
+//export GPMC_GetStreamManifest
+func GPMC_GetStreamManifest(handle C.ulonglong, cMediaKey *C.char, cProtocol *C.char, contentVersion C.longlong, timeoutMs C.longlong) *C.char {
+	client := getClient(uint64(handle))
+	if client == nil {
+		return jsonResponse(nil, errors.New("client handle not found"))
+	}
+	ctx, cancel := getContext(timeoutMs)
+	defer cancel()
+	mediaKey := C.GoString(cMediaKey)
+	protocol := C.GoString(cProtocol)
+	manifest, err := client.GetStreamManifest(ctx, mediaKey, protocol, int64(contentVersion))
+	return jsonResponse(manifest, err)
+}
+
 //export GPMC_CreateAlbum
 func GPMC_CreateAlbum(handle C.ulonglong, cAlbumName *C.char, cMediaKeysJSON *C.char, timeoutMs C.longlong) *C.char {
 	client := getClient(uint64(handle))
@@ -570,6 +584,22 @@ func GPMC_GetDownloadURL_Async(handle C.ulonglong, cMediaKey *C.char, timeoutMs 
 	}
 	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
 		return client.GetDownloadURL(ctx, mediaKey)
+	})
+}
+
+//export GPMC_GetStreamManifest_Async
+func GPMC_GetStreamManifest_Async(handle C.ulonglong, cMediaKey *C.char, cProtocol *C.char, contentVersion C.longlong, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getClient(uint64(handle))
+	mediaKey := C.GoString(cMediaKey)
+	protocol := C.GoString(cProtocol)
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("client handle not found")
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		return client.GetStreamManifest(ctx, mediaKey, protocol, int64(contentVersion))
 	})
 }
 

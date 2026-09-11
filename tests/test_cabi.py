@@ -129,6 +129,27 @@ class TestCAbiFixes(unittest.TestCase):
         self.assertIn("client handle not found", res.get("error", ""))
 
 
+    def test_gpmc_get_stream_manifest_cabi(self):
+        """Verify GPMC_GetStreamManifest and GPMC_GetStreamManifest_Async C-ABI exports exist."""
+        self.assertTrue(hasattr(self.lib, "GPMC_GetStreamManifest"))
+        self.assertTrue(hasattr(self.lib, "GPMC_GetStreamManifest_Async"))
+        self.lib.GPMC_GetStreamManifest.argtypes = [
+            ctypes.c_ulonglong,
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+            ctypes.c_longlong,
+            ctypes.c_longlong,
+        ]
+        self.lib.GPMC_GetStreamManifest.restype = ctypes.c_void_p
+        raw_ptr = self.lib.GPMC_GetStreamManifest(99999999, b"test_key", b"hls", 0, 1000)
+        self.assertTrue(bool(raw_ptr))
+        json_str = ctypes.string_at(raw_ptr).decode("utf-8")
+        self.lib.GPMC_FreeString(raw_ptr)
+        res = json.loads(json_str)
+        self.assertFalse(res.get("success"))
+        self.assertIn("client handle not found", res.get("error", ""))
+
+
 if __name__ == "__main__":
     unittest.main()
 
