@@ -49,15 +49,32 @@ async def get_active_mobile_account(account_id: Optional[int] = None) -> Optiona
         return res.scalar_one_or_none()
 
 
+# In-memory client cache: account_id -> (auth_data, PhotosEngineClient)
+_client_cache: dict[int, tuple[str, PhotosEngineClient]] = {}
+
+
+def invalidate_mobile_client_cache(account_id: Optional[int] = None) -> None:
+    """Evict cached PhotosEngineClient instances when credentials change."""
+    if account_id is not None:
+        _client_cache.pop(account_id, None)
+    else:
+        _client_cache.clear()
+
+
 async def get_mobile_client(account_id: Optional[int] = None) -> Tuple[PhotosEngineClient, MobileAccount]:
     """
-    Instantiate PhotosEngineClient strictly from active database mobile_accounts row.
-    Guarantees no .env fallback.
+    Instantiate or retrieve cached PhotosEngineClient strictly from active database mobile_accounts row.
+    Reuses client to preserve Go TokenManager internal memory cache and avoid redundant auth calls.
     """
     account = await get_active_mobile_account(account_id)
     if not account:
         raise RuntimeError("No active Mobile Auth account found in database. Please add an account via /api/mobile/accounts.")
 
     auth_data = account.auth_data
+    cached = _client_cache.get(account.id)
+    if cached and cached[0] == auth_data:
+        return cached[1], account
+
     client = PhotosEngineClient(auth_data=auth_data)
+    _client_cache[account.id] = (auth_data, client)
     return client, account

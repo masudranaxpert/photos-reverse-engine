@@ -10,7 +10,7 @@ from app.schemas import (
     MobileAccountResponse,
 )
 from app.security import get_current_admin
-from app.services.mobile_service import extract_email_from_auth_data
+from app.services.mobile_service import extract_email_from_auth_data, invalidate_mobile_client_cache
 from photos_engine import PhotosEngineClient
 
 router = APIRouter(prefix="/api/mobile", tags=["Mobile Client Accounts"])
@@ -62,6 +62,7 @@ async def create_mobile_account(
         if account:
             account.auth_data = raw_auth
             account.is_active = True
+            invalidate_mobile_client_cache(account.id)
         else:
             account = MobileAccount(email=email, auth_data=raw_auth, is_active=True)
             db.add(account)
@@ -95,6 +96,7 @@ async def activate_mobile_account(
         account.is_active = True
         await db.flush()
         await db.refresh(account)
+        invalidate_mobile_client_cache()
 
     return MobileAccountResponse(
         id=account.id,
@@ -116,4 +118,5 @@ async def delete_mobile_account(
         res = await db.execute(stmt)
         if res.rowcount == 0:
             raise HTTPException(status_code=404, detail="Mobile account not found")
+        invalidate_mobile_client_cache(account_id)
     return {"success": True, "message": "Mobile account deleted successfully"}
