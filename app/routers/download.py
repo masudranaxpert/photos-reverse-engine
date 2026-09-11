@@ -322,7 +322,7 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
     }
 
     if perm:
-        download_url = await _get_download_url(perm.media_key, "permanent", timeout=1.5)
+        download_url = await _get_download_url(perm.media_key, "permanent", timeout=6.0)
         has_stream_cache = await is_stream_cached(perm.media_key)
         if not has_stream_cache:
             background_tasks.add_task(fetch_and_cache_stream, perm.media_key, drive_ref.id)
@@ -334,7 +334,7 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
             "has_stream_cache": has_stream_cache,
         })
     elif temp:
-        download_url = await _get_download_url(temp.media_key, "temp", timeout=1.5)
+        download_url = await _get_download_url(temp.media_key, "temp", timeout=6.0)
         context.update({
             "status": "ready" if download_url else "processing",
             "download_url": download_url,
