@@ -229,7 +229,7 @@ async def authenticate_admin(
                 headers={"WWW-Authenticate": "Bearer"},
             )
     except JWTError:
-        async with get_db() as db:
+        async with get_db(write=False) as db:
             stmt = select(ApiKey).where(ApiKey.key == token, ApiKey.is_active.is_(True))
             res = await db.execute(stmt)
             key_obj = res.scalar_one_or_none()
@@ -249,7 +249,7 @@ async def authenticate_admin(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         result = await db.execute(select(Admin).where(Admin.username == username))
         admin = result.scalar_one_or_none()
         if not admin or not admin.is_active:

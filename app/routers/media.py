@@ -66,7 +66,7 @@ async def list_media_files(
     """Retrieve paginated media files repository mapped to active DriveRefs and imports."""
     offset = (page - 1) * page_size
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         base_query = (
             select(DriveRef, PermanentItem, TempImport, ApiKey.name)
             .outerjoin(PermanentItem, PermanentItem.drive_ref_id == DriveRef.id)
@@ -157,7 +157,7 @@ async def list_media_files(
 async def get_dashboard_stats(current_admin: dict = Depends(get_current_admin)):
     """Summary counts for top dashboard metrics."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         c1 = await db.execute(select(func.count(DriveRef.id)))
         total_media = c1.scalar() or 0
 
@@ -249,7 +249,7 @@ async def list_cached_urls(
     elif status_str == "expired":
         filters.append(DownloadCache.expires_at <= now)
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         count_stmt = select(func.count(DownloadCache.media_key))
         if filters:
             count_stmt = count_stmt.where(*filters)
@@ -371,7 +371,7 @@ async def list_stream_cache(
     elif status_str == "expired":
         filters.append(StreamCache.expires_at <= now)
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         count_stmt = select(func.count(StreamCache.id)).outerjoin(
             DriveRef, StreamCache.drive_ref_id == DriveRef.id
         )
@@ -487,7 +487,7 @@ async def clear_all_temp_media(current_admin: dict = Depends(get_current_admin))
     """
     from app.services.web_service import get_web_client
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         res = await db.execute(select(TempImport))
         temp_items = res.scalars().all()
         if not temp_items:
@@ -497,28 +497,29 @@ async def clear_all_temp_media(current_admin: dict = Depends(get_current_admin))
         drive_ref_ids = list(set([t.drive_ref_id for t in temp_items]))
         media_keys = list(set([t.media_key for t in temp_items if t.media_key]))
 
-        # 1. Attempt Google Photos web deletion if cookies exist
-        gp_msg = "skipped"
+    # 1. Attempt Google Photos web deletion outside of DB transaction
+    gp_msg = "skipped"
+    try:
+        client, _ = await get_web_client()
         try:
-            client, _ = await get_web_client()
-            try:
-                reset_res = client.reset_account(timeout_ms=30000)
-                gp_msg = f"Cleaned {reset_res.total_deleted} items in Google Photos"
-            except Exception as e:
-                gp_msg = f"Google Photos cleanup failed/skipped: {e}"
-            finally:
-                client.close()
+            loop = asyncio.get_running_loop()
+            reset_res = await loop.run_in_executor(None, client.reset_account, 30000)
+            gp_msg = f"Cleaned {reset_res.total_deleted} items in Google Photos"
         except Exception as e:
-            gp_msg = f"No active web session ({e})"
+            gp_msg = f"Google Photos cleanup failed/skipped: {e}"
+        finally:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, client.close)
+    except Exception as e:
+        gp_msg = f"No active web session ({e})"
 
-        # 2. Delete DownloadCache
+    # 2. Fast DB write
+    async with get_db() as db:
         if media_keys:
             await db.execute(delete(DownloadCache).where(DownloadCache.media_key.in_(media_keys)))
 
-        # 3. Delete TempImport rows
         await db.execute(delete(TempImport).where(TempImport.id.in_(temp_ids)))
 
-        # 4. Check which drive_refs have no PermanentItem
         perm_refs_res = await db.execute(
             select(PermanentItem.drive_ref_id).where(PermanentItem.drive_ref_id.in_(drive_ref_ids))
         )
@@ -527,8 +528,6 @@ async def clear_all_temp_media(current_admin: dict = Depends(get_current_admin))
 
         if unpromoted_ref_ids:
             await db.execute(delete(DriveRef).where(DriveRef.id.in_(unpromoted_ref_ids)))
-
-        await db.commit()
 
     return {
         "success": True,
@@ -548,7 +547,7 @@ async def clear_all_permanent_media(current_admin: dict = Depends(get_current_ad
     """
     from app.services.mobile_service import get_mobile_client
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         res = await db.execute(select(PermanentItem))
         perm_items = res.scalars().all()
         if not perm_items:
@@ -558,31 +557,30 @@ async def clear_all_permanent_media(current_admin: dict = Depends(get_current_ad
         drive_ref_ids = list(set([p.drive_ref_id for p in perm_items]))
         media_keys = list(set([p.media_key for p in perm_items if p.media_key]))
 
-        # 1. Attempt mobile client delete
-        mobile_cleaned = 0
-        try:
-            mobile_client, _ = await get_mobile_client()
-            for mk in media_keys:
-                try:
-                    if hasattr(mobile_client, "delete_by_media_key_async"):
-                        await mobile_client.delete_by_media_key_async(mk)
-                    else:
-                        mobile_client.delete_by_media_key(mk)
-                    mobile_cleaned += 1
-                except Exception:
-                    pass
-        except Exception:
-            pass
+    # 1. Attempt mobile client delete outside DB transaction
+    mobile_cleaned = 0
+    try:
+        mobile_client, _ = await get_mobile_client()
+        for mk in media_keys:
+            try:
+                if hasattr(mobile_client, "delete_by_media_key_async"):
+                    await mobile_client.delete_by_media_key_async(mk)
+                else:
+                    mobile_client.delete_by_media_key(mk)
+                mobile_cleaned += 1
+            except Exception:
+                pass
+    except Exception:
+        pass
 
-        # 2. Delete DownloadCache and StreamCache
+    # 2. Fast DB write
+    async with get_db() as db:
         if media_keys:
             await db.execute(delete(DownloadCache).where(DownloadCache.media_key.in_(media_keys)))
             await db.execute(delete(StreamCache).where(StreamCache.media_key.in_(media_keys)))
 
-        # 3. Delete PermanentItem rows
         await db.execute(delete(PermanentItem).where(PermanentItem.id.in_(perm_ids)))
 
-        # 4. Delete DriveRef rows that have no TempImport
         temp_refs_res = await db.execute(
             select(TempImport.drive_ref_id).where(TempImport.drive_ref_id.in_(drive_ref_ids))
         )
@@ -591,8 +589,6 @@ async def clear_all_permanent_media(current_admin: dict = Depends(get_current_ad
 
         if dangling_ref_ids:
             await db.execute(delete(DriveRef).where(DriveRef.id.in_(dangling_ref_ids)))
-
-        await db.commit()
 
     return {
         "success": True,
@@ -706,28 +702,33 @@ async def delete_single_media(
     """Delete an individual media item from temporary, permanent storage, or dead DriveRef."""
     from app.services.mobile_service import get_mobile_client
 
-    async with get_db() as db:
+    temp_id: int | None = None
+    temp_dedup_key: str | None = None
+    temp_ref_id: int | None = None
+    perm_id: int | None = None
+    perm_media_key: str | None = None
+    perm_ref_id: int | None = None
+    dead_ref_id: int | None = None
+    media_keys_to_evict: list[str] = []
+
+    async with get_db(write=False) as db:
         temp_item = None
         perm_item = None
         drive_ref = None
 
         if req.media_key:
-            # Check TempImport
+            media_keys_to_evict.append(req.media_key)
             temp_stmt = select(TempImport).where(
                 or_(
                     TempImport.media_key == req.media_key,
                     (TempImport.dedup_key == req.dedup_key) if req.dedup_key else False,
                 )
             )
-            temp_res = await db.execute(temp_stmt)
-            temp_item = temp_res.scalars().first()
+            temp_item = (await db.execute(temp_stmt)).scalars().first()
 
-            # Check PermanentItem
             perm_stmt = select(PermanentItem).where(PermanentItem.media_key == req.media_key)
-            perm_res = await db.execute(perm_stmt)
-            perm_item = perm_res.scalars().first()
+            perm_item = (await db.execute(perm_stmt)).scalars().first()
 
-        # If not found by media_key or no media_key provided, lookup by drive_ref_id or drive_id
         if not temp_item and not perm_item:
             if req.drive_ref_id:
                 drive_ref = await db.get(DriveRef, req.drive_ref_id)
@@ -747,55 +748,77 @@ async def delete_single_media(
         if not temp_item and not perm_item and not drive_ref:
             raise HTTPException(status_code=404, detail="Media item or reference not found")
 
-        # Delete from cache
-        if req.media_key:
-            await db.execute(delete(DownloadCache).where(DownloadCache.media_key == req.media_key))
-            await db.execute(delete(StreamCache).where(StreamCache.media_key == req.media_key))
-
         if temp_item:
-            ref_id = temp_item.drive_ref_id
-            if temp_item.dedup_key:
-                try:
-                    from app.services.web_service import get_web_client
-                    client, _ = await get_web_client()
-                    if hasattr(client, "delete_permanently_async"):
-                        await client.delete_permanently_async(temp_item.dedup_key)
-                    client.close()
-                except Exception:
-                    pass
-            await db.delete(temp_item)
-            has_perm = (
-                await db.execute(
-                    select(PermanentItem.id).where(PermanentItem.drive_ref_id == ref_id)
-                )
-            ).scalar()
-            if not has_perm:
-                await db.execute(delete(DriveRef).where(DriveRef.id == ref_id))
+            temp_id = temp_item.id
+            temp_dedup_key = temp_item.dedup_key
+            temp_ref_id = temp_item.drive_ref_id
+            if temp_item.media_key and temp_item.media_key not in media_keys_to_evict:
+                media_keys_to_evict.append(temp_item.media_key)
 
         if perm_item:
-            ref_id = perm_item.drive_ref_id
-            try:
-                mobile_client, _ = await get_mobile_client()
-                if hasattr(mobile_client, "delete_by_media_key_async"):
-                    await mobile_client.delete_by_media_key_async(perm_item.media_key)
-                elif hasattr(mobile_client, "delete_by_media_key"):
-                    mobile_client.delete_by_media_key(perm_item.media_key)
-            except Exception:
-                pass
-            await db.delete(perm_item)
-            has_temp = (
-                await db.execute(
-                    select(TempImport.id).where(TempImport.drive_ref_id == ref_id)
-                )
-            ).scalar()
-            if not has_temp:
-                await db.execute(delete(DriveRef).where(DriveRef.id == ref_id))
+            perm_id = perm_item.id
+            perm_media_key = perm_item.media_key
+            perm_ref_id = perm_item.drive_ref_id
+            if perm_item.media_key and perm_item.media_key not in media_keys_to_evict:
+                media_keys_to_evict.append(perm_item.media_key)
 
-        # Dead DriveRef with no items
         if drive_ref and not temp_item and not perm_item:
-            await db.delete(drive_ref)
+            dead_ref_id = drive_ref.id
 
-        await db.commit()
+    # 1. External API deletions outside DB transaction
+    if temp_dedup_key:
+        try:
+            from app.services.web_service import get_web_client
+            client, _ = await get_web_client()
+            try:
+                if hasattr(client, "delete_permanently_async"):
+                    await client.delete_permanently_async(temp_dedup_key)
+            finally:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, client.close)
+        except Exception:
+            pass
+
+    if perm_media_key:
+        try:
+            mobile_client, _ = await get_mobile_client()
+            if hasattr(mobile_client, "delete_by_media_key_async"):
+                await mobile_client.delete_by_media_key_async(perm_media_key)
+            elif hasattr(mobile_client, "delete_by_media_key"):
+                mobile_client.delete_by_media_key(perm_media_key)
+        except Exception:
+            pass
+
+    # 2. Fast DB write
+    async with get_db() as db:
+        for mk in media_keys_to_evict:
+            await db.execute(delete(DownloadCache).where(DownloadCache.media_key == mk))
+            await db.execute(delete(StreamCache).where(StreamCache.media_key == mk))
+
+        if temp_id:
+            await db.execute(delete(TempImport).where(TempImport.id == temp_id))
+            if temp_ref_id:
+                has_perm = (
+                    await db.execute(
+                        select(PermanentItem.id).where(PermanentItem.drive_ref_id == temp_ref_id)
+                    )
+                ).scalar()
+                if not has_perm:
+                    await db.execute(delete(DriveRef).where(DriveRef.id == temp_ref_id))
+
+        if perm_id:
+            await db.execute(delete(PermanentItem).where(PermanentItem.id == perm_id))
+            if perm_ref_id:
+                has_temp = (
+                    await db.execute(
+                        select(TempImport.id).where(TempImport.drive_ref_id == perm_ref_id)
+                    )
+                ).scalar()
+                if not has_temp:
+                    await db.execute(delete(DriveRef).where(DriveRef.id == perm_ref_id))
+
+        if dead_ref_id:
+            await db.execute(delete(DriveRef).where(DriveRef.id == dead_ref_id))
 
     return {"success": True, "message": "Media item deleted successfully"}
 

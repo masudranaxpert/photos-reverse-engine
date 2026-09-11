@@ -21,7 +21,7 @@ async def list_jobs(
     current_admin: dict = Depends(get_current_admin),
 ):
     """List background jobs for the dashboard, newest first."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = (
             select(BackgroundJob)
             .where(BackgroundJob.run_every_sec.isnot(None))

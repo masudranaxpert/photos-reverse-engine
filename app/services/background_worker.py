@@ -135,7 +135,7 @@ async def run_daily_cleanup_logic() -> dict:
         logger.warning("[daily_cleanup] Web client unavailable (cookies expired/offline): %s. Halting daily cleanup.", exc)
         return {"deleted_count": 0, "freed_bytes": 0, "skipped": "cookies_offline"}
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = (
             select(TempImport, DriveRef.file_size)
             .outerjoin(DriveRef, TempImport.drive_ref_id == DriveRef.id)
@@ -188,7 +188,8 @@ async def run_daily_cleanup_logic() -> dict:
                 deleted_ids.append(item.id)
     finally:
         if client:
-            client.close()
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, client.close)
 
     if deleted_ids:
         from sqlalchemy import delete as sa_delete

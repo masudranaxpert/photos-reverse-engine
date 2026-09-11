@@ -107,7 +107,7 @@ async def clear_all_notices() -> int:
 async def get_active_notices() -> List[dict]:
     """Return all currently active notices."""
     try:
-        async with get_db() as db:
+        async with get_db(write=False) as db:
             stmt = (
                 select(SystemNotice)
                 .where(SystemNotice.is_active == True)
@@ -157,7 +157,7 @@ async def get_notices_paginated(
     empty = {"notices": [], "total": 0, "page": 1, "page_size": page_size, "total_pages": 1}
     try:
         size = min(max(1, page_size), 100)
-        async with get_db() as db:
+        async with get_db(write=False) as db:
             base = select(SystemNotice)
             if status == "active":
                 base = base.where(SystemNotice.is_active == True)  # noqa: E712

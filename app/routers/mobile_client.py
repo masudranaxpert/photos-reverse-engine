@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api/mobile", tags=["Mobile Client Accounts"])
 @router.get("/accounts", response_model=List[MobileAccountResponse])
 async def list_mobile_accounts(current_admin: dict = Depends(get_current_admin)):
     """List all stored Google Photos mobile client accounts."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(MobileAccount).order_by(MobileAccount.id.desc())
         res = await db.execute(stmt)
         accounts = res.scalars().all()

@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/keys", tags=["API Keys Management"])
 @router.get("", response_model=List[ApiKeyResponse])
 async def list_api_keys(current_admin: dict = Depends(get_current_admin)):
     """List all registered API keys (secrets masked with public prefix)."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(ApiKey).order_by(ApiKey.id.desc())
         res = await db.execute(stmt)
         keys = res.scalars().all()
@@ -89,7 +89,7 @@ async def reveal_api_key(
     current_admin: dict = Depends(get_current_admin),
 ):
     """Return the full secret for a stored API key (admin-only white-label/copy support)."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         res = await db.execute(select(ApiKey).where(ApiKey.id == key_id))
         key_obj = res.scalar_one_or_none()
 

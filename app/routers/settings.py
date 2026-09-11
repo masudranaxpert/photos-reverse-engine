@@ -59,7 +59,7 @@ class ConcurrencyRequest(BaseModel):
 @router.get("/import-concurrency", response_model=ConcurrencyResponse)
 async def get_import_concurrency(current_admin: dict = Depends(get_current_admin)):
     """Return the current max concurrent Drive→Photos import slots."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         row = await db.get(SystemSetting, "max_concurrent_imports")
     value = int(row.value) if row else 1
     return ConcurrencyResponse(

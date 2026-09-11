@@ -84,7 +84,7 @@ async def _delete_oldest_temp(web_client, target_bytes: int) -> int:
     4. If cookies expire midway, halts the entire delete process immediately.
     """
     # Verify active web session before starting
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         active_sess = (await db.execute(
             select(WebSession).where(WebSession.is_active.is_(True)).limit(1)
         )).scalar_one_or_none()
@@ -94,7 +94,7 @@ async def _delete_oldest_temp(web_client, target_bytes: int) -> int:
 
     freed = 0
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = (
             select(TempImport, DriveRef.file_size)
             .outerjoin(DriveRef, TempImport.drive_ref_id == DriveRef.id)

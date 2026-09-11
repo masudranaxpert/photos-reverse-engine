@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/web", tags=["Web Client & Cookie Sessions"])
 @router.get("/sessions", response_model=List[WebSessionResponse])
 async def list_web_sessions(current_admin: dict = Depends(get_current_admin)):
     """List all stored Google Photos web cookie sessions."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(WebSession).order_by(WebSession.id.desc())
         res = await db.execute(stmt)
         sessions = res.scalars().all()
@@ -122,7 +122,7 @@ async def get_web_session(
     current_admin: dict = Depends(get_current_admin),
 ):
     """Get full details of a specific web session including cookies."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(WebSession).where(WebSession.session_id == session_id.strip())
         res = await db.execute(stmt)
         sess = res.scalar_one_or_none()
@@ -158,6 +158,25 @@ async def update_web_session(
     current_admin: dict = Depends(get_current_admin),
 ):
     """Update session name, cookies, or active state."""
+    new_blob = None
+    account_email = None
+
+    if req.cookies:
+        raw_cookies = req.cookies.strip()
+        status = await NativeWebClient.check_status_async(raw_cookies)
+        if not status.valid:
+            raise HTTPException(status_code=400, detail=f"Cookie verification failed: {status.message}")
+        client = None
+        try:
+            client = NativeWebClient(cookies=raw_cookies)
+            new_blob = client.export_session_blob()
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to refresh session blob: {exc}")
+        finally:
+            if client:
+                client.close()
+        account_email = status.account
+
     async with get_db() as db:
         stmt = select(WebSession).where(WebSession.session_id == session_id.strip())
         res = await db.execute(stmt)
@@ -170,25 +189,11 @@ async def update_web_session(
         if req.is_active is not None:
             sess.is_active = req.is_active
 
-        if req.cookies:
-            raw_cookies = req.cookies.strip()
-            status = await NativeWebClient.check_status_async(raw_cookies)
-            if not status.valid:
-                raise HTTPException(status_code=400, detail=f"Cookie verification failed: {status.message}")
-            client = None
-            try:
-                client = NativeWebClient(cookies=raw_cookies)
-                blob = client.export_session_blob()
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=f"Failed to refresh session blob: {exc}")
-            finally:
-                if client:
-                    client.close()
-
-            sess.session_blob = blob
+        if new_blob:
+            sess.session_blob = new_blob
             sess.is_active = True
-            if status.account:
-                sess.account_email = status.account
+            if account_email:
+                sess.account_email = account_email
 
         await db.flush()
         await db.refresh(sess)

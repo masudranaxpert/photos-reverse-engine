@@ -25,7 +25,7 @@ router = APIRouter(prefix="/api/auth", tags=["Authentication & Admins"])
 @router.post("/login", response_model=TokenResponse)
 async def login(req: LoginRequest, response: Response):
     """Authenticate admin and return JWT access token, setting access_token cookie."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(Admin).where(Admin.username == req.username.strip())
         res = await db.execute(stmt)
         admin = res.scalar_one_or_none()
@@ -71,7 +71,7 @@ async def logout(response: Response):
 @router.get("/me", response_model=AdminResponse)
 async def get_me(current_admin: dict = Depends(get_current_admin)):
     """Return currently authenticated admin details."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(Admin).where(Admin.id == current_admin["id"])
         res = await db.execute(stmt)
         admin = res.scalar_one_or_none()
@@ -88,7 +88,7 @@ async def get_me(current_admin: dict = Depends(get_current_admin)):
 @router.get("/admins", response_model=List[AdminResponse])
 async def list_admins(current_admin: dict = Depends(get_current_admin)):
     """List all registered administrator accounts."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(Admin).order_by(Admin.id.asc())
         res = await db.execute(stmt)
         admins = res.scalars().all()
