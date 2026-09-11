@@ -27,7 +27,7 @@ async def run_cookies_check_logic() -> dict:
     from app.services.web_service import sync_session_blob
     from photos_engine import NativeWebClient
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         res = await db.execute(select(WebSession))
         sessions = res.scalars().all()
 
@@ -297,7 +297,7 @@ async def mark_cookies_valid_and_resume() -> int:
 async def _get_import_concurrency() -> int:
     """Read max_concurrent_imports from settings, defaulting to 1."""
     try:
-        async with get_db() as db:
+        async with get_db(write=False) as db:
             row = await db.get(SystemSetting, "max_concurrent_imports")
             if row:
                 return max(1, int(row.value))
@@ -540,7 +540,7 @@ async def run_pipeline_sweep_logic() -> dict:
 
 async def _run_pipeline_sweep_logic_internal() -> dict:
     """Internal implementation for pipeline sweep."""
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         queued_refs = (await db.execute(
             select(DriveRef).where(DriveRef.file_status == "queued").limit(5)
         )).scalars().all()
@@ -557,7 +557,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
         except Exception as exc:
             logger.warning("[sweep/drive_import] Error queueing ref_id=%d: %s", qref.id, exc)
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         pending_share = (await db.execute(
             select(TempImport).where(TempImport.share_url.is_(None)).limit(20)
         )).scalars().all()
@@ -586,7 +586,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                 client.close()
 
     now = _utc_now()
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         pending_promote = (await db.execute(
             select(TempImport).where(
                 TempImport.share_url.isnot(None),

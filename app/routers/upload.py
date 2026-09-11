@@ -53,7 +53,7 @@ async def _process_upload(
         )
 
     # ── 2. Check for existing drive_ref (idempotent) ───────────────────────────
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(DriveRef).where(DriveRef.drive_id == drive_id)
         res = await db.execute(stmt)
         existing = res.scalar_one_or_none()

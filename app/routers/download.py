@@ -52,7 +52,7 @@ async def _resolve_brand_name(request: Request) -> str | None:
             candidates.append(bearer)
 
     for candidate in candidates:
-        async with get_db() as db:
+        async with get_db(write=False) as db:
             res = await db.execute(
                 select(ApiKey).where(ApiKey.key == candidate, ApiKey.is_active.is_(True))
             )
@@ -94,7 +94,7 @@ async def _resolve_token(token: str) -> tuple[DriveRef | None, PermanentItem | N
     if not raw_token:
         return None, None, None, "not_found"
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(DriveRef).where(DriveRef.token == raw_token)
         res = await db.execute(stmt)
         drive_ref = res.scalar_one_or_none()
@@ -105,7 +105,7 @@ async def _resolve_token(token: str) -> tuple[DriveRef | None, PermanentItem | N
     if token_status == "expired":
         return drive_ref, None, None, "expired"
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(PermanentItem).where(PermanentItem.drive_ref_id == drive_ref.id).limit(1)
         res = await db.execute(stmt)
         perm = res.scalar_one_or_none()
@@ -113,7 +113,7 @@ async def _resolve_token(token: str) -> tuple[DriveRef | None, PermanentItem | N
     if perm:
         return drive_ref, perm, None, "valid"
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = (
             select(TempImport)
             .where(TempImport.drive_ref_id == drive_ref.id)
