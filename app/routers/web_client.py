@@ -247,10 +247,29 @@ async def check_session_status(
 ):
     """Verify live status via blob — ping photos.google.com and rotate PSIDTS in one shot."""
     import asyncio
-    client, target_sid = await get_web_client(session_id)
+
+    target_sid = session_id.strip()
+    account_email = None
+    async with get_db() as db:
+        sess_row = (
+            await db.execute(select(WebSession).where(WebSession.session_id == target_sid))
+        ).scalar_one_or_none()
+        if sess_row:
+            account_email = sess_row.account_email
+
+    client = None
     try:
+        client, target_sid = await get_web_client(session_id, allow_inactive=True)
         quota = await asyncio.get_event_loop().run_in_executor(None, client.get_storage_quota)
         await sync_session_blob(target_sid, client)
+
+        async with get_db() as db:
+            await db.execute(
+                update(WebSession)
+                .where(WebSession.session_id == target_sid)
+                .values(is_active=True)
+            )
+
         from app.services.notice_service import resolve_notice
         await resolve_notice(f"cookies_{target_sid}")
         try:
@@ -258,13 +277,14 @@ async def check_session_status(
             await mark_cookies_valid_and_resume()
         except Exception as exc:
             logger.warning("Could not auto-resume imports on session check: %s", exc)
+
         return WebSessionStatusResponse(
             valid=True,
-            account=client.get_cookies().get("__Secure-1PSID") and session_id or None,
+            account=account_email or target_sid,
             message=f"Session valid. Quota: {quota.usage_text}. Blob rotated & synced.",
         )
     except Exception as exc:
-        err_msg = str(exc)
+        err_msg = exc.detail if isinstance(exc, HTTPException) else str(exc)
         is_expired = any(k in err_msg.lower() for k in ("302", "login", "expired", "unauthorized", "returned status 302"))
         if is_expired:
             async with get_db() as db:
@@ -276,13 +296,17 @@ async def check_session_status(
             from app.services.notice_service import record_notice
             await record_notice(
                 title="Instant Session Expired",
-                message=f"Instant Session '{target_sid}' ({session_id}) cookies expired: {err_msg}. Please update cookies.",
+                message=f"Instant Session '{target_sid}' ({account_email or session_id}) cookies expired: {err_msg}. Please update cookies.",
                 level="error",
                 source=f"cookies_{target_sid}",
             )
-        return WebSessionStatusResponse(valid=False, account=None, message=err_msg)
+        return WebSessionStatusResponse(valid=False, account=account_email, message=err_msg)
     finally:
-        client.close()
+        if client:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
 @router.get("/quota")

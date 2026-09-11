@@ -18,14 +18,13 @@ from app.models import WebSession
 logger = logging.getLogger(__name__)
 
 
-async def get_active_session_row(session_id: Optional[str] = None) -> Optional[WebSession]:
-    """Fetch active session record from SQLite web_sessions table via SQLAlchemy ORM."""
+async def get_active_session_row(session_id: Optional[str] = None, allow_inactive: bool = False) -> Optional[WebSession]:
+    """Fetch session record from SQLite web_sessions table via SQLAlchemy ORM."""
     async with get_db() as db:
         if session_id:
-            stmt = select(WebSession).where(
-                WebSession.session_id == session_id.strip(),
-                WebSession.is_active.is_(True),
-            )
+            stmt = select(WebSession).where(WebSession.session_id == session_id.strip())
+            if not allow_inactive:
+                stmt = stmt.where(WebSession.is_active.is_(True))
             res = await db.execute(stmt)
             return res.scalar_one_or_none()
 
@@ -34,17 +33,18 @@ async def get_active_session_row(session_id: Optional[str] = None) -> Optional[W
         return res.scalar_one_or_none()
 
 
-async def get_web_client(session_id: Optional[str] = None) -> Tuple[NativeWebClient, str]:
+async def get_web_client(session_id: Optional[str] = None, allow_inactive: bool = False) -> Tuple[NativeWebClient, str]:
     """
     Restore an active NativeWebClient from the stored session_blob (single source of truth).
     Returns (client, session_id). Raises HTTP 503/404 on failure.
     """
-    session_row = await get_active_session_row(session_id)
+    session_row = await get_active_session_row(session_id, allow_inactive=allow_inactive)
     if not session_row:
         if session_id:
+            detail = f"Session '{session_id}' not found" if allow_inactive else f"Session '{session_id}' not found or inactive"
             raise HTTPException(
                 status_code=404,
-                detail=f"Session '{session_id}' not found or inactive",
+                detail=detail,
             )
         raise HTTPException(
             status_code=503,
@@ -73,6 +73,10 @@ async def get_web_client(session_id: Optional[str] = None) -> Tuple[NativeWebCli
                 message=f"Instant Session '{target_session_id}' ({session_row.account_email or 'No email'}) cookies have expired. Please export fresh cookies and update them in Cookie Sessions tab.",
                 level="error",
                 source=f"cookies_{target_session_id}",
+            )
+            raise HTTPException(
+                status_code=401,
+                detail="Cookies expired: Google Photos redirected to login (HTTP 302). Please update session.",
             )
         raise HTTPException(
             status_code=503,
