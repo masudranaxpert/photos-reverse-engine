@@ -137,6 +137,20 @@ async def _process_upload(
             if "locked" in str(exc).lower() and attempt < 4:
                 await asyncio.sleep(0.1 * (2 ** attempt))
                 continue
+            if "unique" in str(exc).lower():
+                async with get_db(write=False) as db:
+                    res = await db.execute(select(DriveRef).where(DriveRef.drive_id == drive_id))
+                    existing = res.scalar_one_or_none()
+                if existing:
+                    logger.info("[upload] drive_id=%s inserted concurrently, returning token=%s", drive_id, existing.token)
+                    return UploadResponse(
+                        token=existing.token,
+                        drive_id=drive_id,
+                        status="already_exists",
+                        filename=existing.filename,
+                        file_size=existing.file_size,
+                        download_url=_build_download_url(request, existing.token),
+                    )
             raise
 
     # ── 4. Queue async background import into Google Photos ────────────────────

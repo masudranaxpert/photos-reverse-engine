@@ -462,6 +462,13 @@ async def _execute_drive_import_async(
                 drive_id, media_key_out, dedup_key_out,
             )
 
+            share_url_out = None
+            try:
+                link = await client.create_share_link_async(media_key_out, timeout=6.0)
+                share_url_out = link.share_url
+            except Exception as s_err:
+                logger.debug("[drive_import] Pre-generating share link: %s", s_err)
+
             async with get_db() as db:
                 await db.execute(
                     update(DriveRef)
@@ -476,6 +483,7 @@ async def _execute_drive_import_async(
                         drive_ref_id=drive_ref_id,
                         media_key=media_key_out,
                         dedup_key=dedup_key_out or None,
+                        share_url=share_url_out,
                     ))
 
         except Exception as exc:

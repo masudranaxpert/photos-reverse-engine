@@ -115,11 +115,17 @@ async def cleanup_expired_stream_cache() -> int:
     return deleted
 
 
+_active_stream_fetches: set[str] = set()
+
+
 async def fetch_and_cache_stream(
     media_key: str,
     drive_ref_id: Optional[int] = None,
 ) -> Optional[Dict[str, Any]]:
     """Fetch DASH streaming manifest in background, parse representations, and cache for 20 minutes."""
+    if media_key in _active_stream_fetches:
+        return None
+    _active_stream_fetches.add(media_key)
     try:
         from app.services.streaming_service import get_streaming_data_for_media_key
 
@@ -135,4 +141,6 @@ async def fetch_and_cache_stream(
             return stream_data
     except Exception as exc:
         logger.warning("[stream cache] Failed background stream fetch for %s: %s", media_key, exc)
+    finally:
+        _active_stream_fetches.discard(media_key)
     return None

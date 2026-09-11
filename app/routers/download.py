@@ -198,20 +198,6 @@ def _record_unique_visit(
         )
 
 
-async def _update_manifest_and_fetch_stream(perm_id: int, media_key: str, drive_ref_id: int, check_time: datetime) -> None:
-    """Update last_manifest_check timestamp and fetch DASH manifest in background."""
-    try:
-        async with get_db() as db:
-            await db.execute(
-                update(PermanentItem)
-                .where(PermanentItem.id == perm_id)
-                .values(last_manifest_check=check_time)
-            )
-        await fetch_and_cache_stream(media_key, drive_ref_id)
-    except Exception as exc:
-        logger.warning("[download] Manifest background update failed for %s: %s", media_key, exc)
-
-
 @router.get("/api/download/{token}", response_model=DownloadTokenResponse)
 async def get_download_info(token: str):
     """JSON status for a token: returns download_url when ready."""
@@ -320,10 +306,7 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
         download_url = await _get_download_url(perm.media_key, "permanent")
         has_stream_cache = await is_stream_cached(perm.media_key)
         if not has_stream_cache:
-            now = datetime.now(timezone.utc).replace(tzinfo=None)
-            last_chk = perm.last_manifest_check.replace(tzinfo=None) if perm.last_manifest_check else None
-            if last_chk is None or (now - last_chk).total_seconds() >= STREAM_MANIFEST_THROTTLE_SECONDS:
-                background_tasks.add_task(_update_manifest_and_fetch_stream, perm.id, perm.media_key, drive_ref.id, now)
+            background_tasks.add_task(fetch_and_cache_stream, perm.media_key, drive_ref.id)
 
         context.update({
             "status": "ready" if download_url else "processing",
