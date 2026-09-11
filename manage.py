@@ -124,6 +124,15 @@ def handle_runserver(args):
     """Run uvicorn server for FastAPI application with Loguru."""
     from app.logging_config import setup_logging, logger
     setup_logging()
+
+    # Automatically apply pending database migrations on startup
+    try:
+        import subprocess
+        logger.info("Checking and applying database migrations (alembic upgrade head)...")
+        subprocess.run([sys.executable, "-m", "alembic", "upgrade", "head"], cwd=str(BASE_DIR), check=True)
+    except Exception as exc:
+        logger.warning("Auto-migration encountered an issue (falling back to init_db): {}", exc)
+
     import uvicorn
     logger.info("Starting FastAPI server on http://{}:{}", args.host, args.port)
     uvicorn.run("app.main:app", host=args.host, port=args.port, reload=args.reload, log_config=None)
