@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% if status == 'ready' %}{{ filename or 'Download Link Generated' }} — Instant Engine{% elif status == 'not_found' %}Not Found — Instant Engine{% else %}Generating Link… — Instant Engine{% endif %}</title>
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <style>
+    /* ── base reset (reference: imain.css essentials) ── */
+    *, :after, :before { border: 0 solid #e5e7eb; box-sizing: border-box; }
+    :after, :before { --tw-content: ""; }
+    html {
+      -webkit-text-size-adjust: 100%;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+      line-height: 1.5;
+      -moz-tab-size: 4; tab-size: 4;
+    }
+    body { line-height: inherit; margin: 0; }
+    hr { border-top-width: 1px; color: inherit; height: 0; }
+    a { color: inherit; text-decoration: inherit; }
+    b, strong { font-weight: bolder; }
+    h1, h2, h3, p { margin: 0; }
+    svg { display: block; vertical-align: middle; }
+    img { height: auto; max-width: 100%; }
+    [hidden] { display: none; }
+
+    html, body { max-width: 100%; overflow-x: hidden; }
+
+    /* ── reference: dlstyle.css ── */
+    body {
+      font-family: 'Trebuchet MS', geneva, sans-serif !important;
+      background-color: #fff;
+    }
+    .note-text {
+      color: #000 !important;
+      padding: .75rem 1.25rem;
+      background-color: #f8f9fc;
+      border-bottom: 1px solid #e3e6f0;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      word-wrap: break-word;
+      border: 1px solid #e3e6f0;
+      border-radius: .35rem;
+      font-size: medium;
+    }
+    a { letter-spacing: .5px !important; color: #fff !important; text-decoration: none; background-color: transparent; font-size: 18px; }
+    .btn {
+      display: inline-block;
+      font-weight: 400;
+      text-align: center;
+      vertical-align: middle;
+      user-select: none;
+      border: 1px solid transparent;
+      font-size: .875rem;
+      line-height: 1.5;
+      border-radius: .25rem;
+      transition: color .15s ease-in-out, background-color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
+      color: #fff !important;
+      padding: .46875rem .9375rem;
+    }
+    .btn-brand-02 { background-color: #042893; color: #fff; border-color: #042893; }
+    .btn-brand-02:hover { background-color: #03227e; border-color: #03227e; }
+    .btn svg { width: 24px; height: 24px; stroke-width: 2.5px; margin-top: -2px; display: inline-block; vertical-align: middle; }
+    .tx-bold { font-weight: 700; }
+    .file-info {
+      display: flex; align-items: center; gap: .75rem;
+      background-color: #f8f9fc;
+      border: 1px solid #e3e6f0;
+      border-radius: .35rem;
+      padding: .7rem .9rem;
+      margin-bottom: 1.1rem;
+      text-align: left;
+      max-width: 28rem;
+      margin-left: auto; margin-right: auto;
+    }
+    .file-info-meta { flex: 1; min-width: 0; }
+    .file-info-name {
+      font-weight: 700; font-size: .9rem; color: #111827;
+      word-break: break-word;
+      line-height: 1.6;
+      margin-right: 2px;
+    }
+    .file-info-size {
+      display: inline-block;
+      transform: translateY(-2px);
+      background: #eef2ff; color: #4338ca;
+      padding: 2px 8px; border-radius: 999px;
+      font-size: .72rem; font-weight: 700;
+      white-space: nowrap;
+    }
+    a.btn {
+      display: inline-flex;
+      align-items: center;
+      gap: .55rem;
+      padding: .75rem 1.6rem;
+      border-radius: .35rem;
+      cursor: pointer;
+    }
+    a.btn:hover { background-color: #03227e; }
+    .token-mono, .note-text { cursor: default; }
+
+    /* ── layout utilities (subset used by the page) ── */
+    .container { width: 100%; }
+    @media (min-width: 640px)  { .container { max-width: 640px; } }
+    @media (min-width: 768px)  { .container { max-width: 768px; } }
+    @media (min-width: 1024px) { .container { max-width: 1024px; } }
+    .min-h-screen { min-height: 100vh; }
+    .flex { display: flex; }
+    .flex-col { flex-direction: column; }
+    .flex-1 { flex: 1 1 0%; }
+    .hidden { display: none; }
+    .items-center { align-items: center; }
+    .items-end { align-items: flex-end; }
+    .justify-center { justify-content: center; }
+    .justify-between { justify-content: space-between; }
+    .text-center { text-align: center; }
+    .mx-auto { margin-left: auto; margin-right: auto; }
+    .w-full { width: 100%; }
+    .h-60 { height: 15rem; }
+    .px-4 { padding-left: 1rem; padding-right: 1rem; }
+    .py-4 { padding-bottom: 1rem; padding-top: 1rem; }
+    .px-2 { padding-left: .5rem; padding-right: .5rem; }
+    .text-3xl { font-size: 1.875rem; line-height: 2.25rem; }
+    .text-gray-600 { color: rgb(75 85 99) !important; }
+    .capitalize { text-transform: capitalize; }
+    .bg-cover { background-size: cover; }
+    .bg-no-repeat { background-repeat: no-repeat; }
+    .inline-svg { vertical-align: middle; display: inline-block; }
+    .inline-svg-row { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-top: .75rem; }
+    .token-mono {
+      font-family: 'Courier New', monospace;
+      font-size: .72rem;
+      color: #9ca3af;
+      word-break: break-all;
+      margin-top: 1rem;
+    }
+    .nf-note { max-width: 30rem; margin: 0 auto; }
+
+    /* ── multi-ring loader (reference signature) ── */
+    .loading { align-items: center; justify-content: center; }
+    .loader {
+      max-width: 10rem;
+      height: auto;
+      stroke-linecap: round;
+    }
+    circle {
+      fill: none;
+      stroke-width: 3.5;
+      animation-name: preloader;
+      animation-duration: 3s;
+      animation-iteration-count: infinite;
+      animation-timing-function: ease-in-out;
+      transform-origin: 170px 170px;
+      will-change: transform;
+    }
+    circle:nth-of-type(1) { stroke-dasharray: 550px; animation-delay: -0.15s; }
+    circle:nth-of-type(2) { stroke-dasharray: 500px; animation-delay: -0.3s; }
+    circle:nth-of-type(3) { stroke-dasharray: 450px; animation-delay: -0.45s; }
+    circle:nth-of-type(4) { stroke-dasharray: 300px; animation-delay: -0.6s; }
+    @keyframes preloader { 50% { transform: rotate(360deg); } }
+
+    .py-6 { padding-bottom: 0rem !important; padding-top: 0rem !important; width: 15rem !important; }
+    .text-gray-600-i { color: rgb(75 85 99) !important; }
+
+    /* ── Watch Video Button ── */
+    .btn-watch {
+      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+      color: #fff !important;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+      font-size: 18px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: .55rem;
+      padding: .75rem 1.8rem;
+      border-radius: .35rem;
+      transition: all .2s ease-in-out;
+    }
+    .btn-watch:hover {
+      background: linear-gradient(135deg, #4338ca 0%, #6d28d9 100%);
+      box-shadow: 0 6px 20px rgba(79, 70, 229, 0.45);
+      transform: translateY(-1px);
+    }
+    .btn-watch:active {
+      transform: translateY(0);
+    }
+    .btn-watch:disabled {
+      opacity: 0.75;
+      cursor: not-allowed;
+      transform: none;
+    }
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    .spinner-icon {
+      animation: spin 1s linear infinite;
+    }
+  </style>
+</head>
+<body class="font-sans bg-white">
+<main class="min-h-screen flex flex-col">
+  <header class="container mx-auto px-4 py-4 lg:text-center lg:flex lg:items-center lg:justify-between">
+    <div class="flex justify-between px-0">
+      <a href="/" class="flex justify-center items-center text-gray-600 text-3xl capitalize">
+        <svg xmlns="http://www.w3.org/2000/svg" height="30" width="30" viewBox="0 0 512 512" fill="currentColor">
+          <path d="M64 32C28.7 32 0 60.7 0 96l0 64c0 35.3 28.7 64 64 64l384 0c35.3 0 64-28.7 64-64l0-64c0-35.3-28.7-64-64-64L64 32zm280 72a24 24 0 1 1 0 48 24 24 0 1 1 0-48zm48 24a24 24 0 1 1 48 0 24 24 0 1 1 -48 0zM64 288c-35.3 0-64 28.7-64 64l0 64c0 35.3 28.7 64 64 64l384 0c35.3 0 64-28.7 64-64l0-64c0-35.3-28.7-64-64-64L64 288zm280 72a24 24 0 1 1 0 48 24 24 0 1 1 0-48zm56 24a24 24 0 1 1 48 0 24 24 0 1 1 -48 0z"/>
+        </svg>
+        <span>&nbsp;{{ brand_name or 'Instant Engine' }}</span>
+      </a>
+    </div>
+  </header>
+
+  <main class="flex-1 container mx-auto text-center max-w-3xl px-2 sm:px-0" id="download_container">
+    <div class="container main">
+
+      {% if status == 'not_found' %}
+      <!-- ── NOT FOUND ── -->
+      <br><br>
+      <div class="loading nf-note">
+        <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: .75rem;">
+          <svg xmlns="http://www.w3.org/2000/svg" height="26" width="26" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-svg">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="8" x2="14" y2="14"/><line x1="14" y1="8" x2="8" y2="14"/>
+          </svg>
+          Link Not Found !
+        </h2>
+        <span class="note-text" style="text-align: left;">
+          <i><b>Note:</b> This download link doesn't exist or may have expired. Please check the URL and try again.</i>
+          <b><i>- Instant Engine</i></b>
+        </span>
+        <p class="token-mono">{{ token }}</p>
+      </div>
+
+      {% elif status == 'ready' and download_url %}
+      <!-- ── READY ── -->
+      <center>
+        <br><br>
+        <div class="vd">
+          <h2 style="font-size: 1.5rem; font-weight: 700;">
+            <svg xmlns="http://www.w3.org/2000/svg" height="24" width="30" viewBox="0 0 640 512" fill="currentColor" class="inline-svg">
+              <path d="M579.8 267.7c56.5-56.5 56.5-148 0-204.5c-50-50-128.8-56.5-186.3-15.4l-1.6 1.1c-14.4 10.3-17.7 30.3-7.4 44.6s30.3 17.7 44.6 7.4l1.6-1.1c32.1-22.9 76-19.3 103.8 8.6c31.5 31.5 31.5 82.5 0 114L422.3 334.8c-31.5 31.5-82.5 31.5-114 0c-27.9-27.9-31.5-71.8-8.6-103.8l1.1-1.6c10.3-14.4 6.9-34.4-7.4-44.6s-34.4-6.9-44.6 7.4l-1.1 1.6C206.5 251.2 213 330 263 380c56.5 56.5 148 56.5 204.5 0L579.8 267.7zM60.2 244.3c-56.5 56.5-56.5 148 0 204.5c50 50 128.8 56.5 186.3 15.4l1.6-1.1c14.4-10.3 17.7-30.3 7.4-44.6s-30.3-17.7-44.6-7.4l-1.6 1.1c-32.1 22.9-76 19.3-103.8-8.6C74 372 74 321 105.5 289.5L217.7 177.2c31.5-31.5 82.5-31.5 114 0c27.9 27.9 31.5 71.8 8.6 103.9l-1.1 1.6c-10.3 14.4-6.9 34.4 7.4 44.6s34.4 6.9 44.6-7.4l1.1-1.6C433.5 260.8 427 182 377 132c-56.5-56.5-148-56.5-204.5 0L60.2 244.3z"/>
+            </svg>
+            Link Generated !
+          </h2>
+          <br>
+          {% if filename or file_size %}
+          <div class="file-info">
+            <div class="file-info-meta">
+              <span class="file-info-name" title="{{ filename or 'Download' }}">{{ filename or 'Download' }}</span>
+              {% if file_size %}<span class="file-info-size">{% set mb = file_size / 1048576 %}{% if mb >= 1024 %}{{ (mb / 1024)|round(2) }} GB{% else %}{{ mb|round(1) }} MB{% endif %}</span>{% endif %}
+            </div>
+          </div>
+          {% endif %}
+
+          {% if is_permanent %}
+          <!-- Inline Iframe Player Container -->
+          <div id="playerWrapper" style="display: none; width: 100%; margin: 1.25rem 0; border-radius: 10px; overflow: hidden; background: #000; aspect-ratio: 16/9; box-shadow: 0 8px 24px rgba(0,0,0,0.25);">
+            <iframe id="playerIframe" style="width: 100%; height: 100%; border: 0; display: block;" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>
+          </div>
+          {% endif %}
+
+          <section id="downloadIllu" style="margin-top: .8rem;">
+            <img src="/static/img/upload.svg" style="height: 190px; width: auto;" class="mx-auto" alt="Download ready illustration">
+          </section>
+          <br>
+          <a id="vd" href="{{ download_url }}" download class="btn btn-brand-02" style="font-size: 18px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+              <polyline points="7 10 12 15 17 10"></polyline>
+              <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            <span class="tx-bold">Download Here</span>
+          </a>
+          {% if is_permanent %}
+          <div id="watchBtnContainer" style="margin-top: 0.9rem; {% if not has_stream_cache %}display: none;{% endif %}">
+            <button id="watchBtn" type="button" class="btn btn-watch" onclick="toggleWatchVideo()">
+              <svg id="watchBtnIcon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+              </svg>
+              <span id="watchBtnText" class="tx-bold">Watch Video</span>
+            </button>
+          </div>
+          {% endif %}
+          <br><hr>
+          <span class="m-5 font-weight-normal note-text">
+            <i><b>Note:</b> Please Don't Pause the Download or Close the Downloading App from Background, else Download won't be Resumed. </i>
+            <b><i>- Instant Engine</i></b>
+          </span>
+          <hr>
+        </div>
+      </center>
+
+      {% else %}
+      <!-- ── PROCESSING / GENERATING ── -->
+      <center>
+        <br><br>
+        <div class="loading">
+          <svg class="loader" style="margin:auto;background:#fff;display:block;" width="200px" height="200px" preserveAspectRatio="xMidYMid" viewBox="0 0 340 340">
+            <circle cx="170" cy="170" r="160" stroke="rgb(99, 102, 241)"/>
+            <circle cx="170" cy="170" r="135" stroke="#404041"/>
+            <circle cx="170" cy="170" r="110" stroke="rgb(99, 102, 241)"/>
+            <circle cx="170" cy="170" r="85" stroke="#404041"/>
+          </svg><br><br>
+          <h3>Generating Link</h3><br>
+          <div class="inline-svg-row">
+            <svg xmlns="http://www.w3.org/2000/svg" height="30" width="30" viewBox="0 0 512 512" fill="currentColor" class="inline-svg">
+              <path d="M464 6.1c9.5-8.5 24-8.1 33 .9l8 8c9 9 9.4 23.5 .9 33l-85.8 95.9c-2.6 2.9-4.1 6.7-4.1 10.7l0 21.4c0 8.8-7.2 16-16 16l-15.8 0c-4.6 0-8.9 1.9-11.9 5.3L100.7 500.9C94.3 508 85.3 512 75.8 512c-8.8 0-17.3-3.5-23.5-9.8L9.7 459.7C3.5 453.4 0 445 0 436.2c0-9.5 4-18.5 11.1-24.8l111.6-99.8c3.4-3 5.3-7.4 5.3-11.9l0-27.6c0-8.8 7.2-16 16-16l34.6 0c3.9 0 7.7-1.5 10.7-4.1L464 6.1zM432 288c3.6 0 6.7 2.4 7.7 5.8l14.8 51.7 51.7 14.8c3.4 1 5.8 4.1 5.8 7.7s-2.4 6.7-5.8 7.7l-51.7 14.8-14.8 51.7c-1 3.4-4.1 5.8-7.7 5.8s-6.7-2.4-7.7-5.8l-14.8-51.7-51.7-14.8c-3.4-1-5.8-4.1-5.8-7.7s2.4-6.7 5.8-7.7l51.7-14.8 14.8-51.7c1-3.4 4.1-5.8 7.7-5.8zM87.7 69.8l14.8 51.7 51.7 14.8c3.4 1 5.8 4.1 5.8 7.7s-2.4 6.7-5.8 7.7l-51.7 14.8L87.7 218.2c-1 3.4-4.1 5.8-7.7 5.8s-6.7-2.4-7.7-5.8L57.5 166.5 5.8 151.7c-3.4-1-5.8-4.1-5.8-7.7s2.4-6.7 5.8-7.7l51.7-14.8L72.3 69.8c1-3.4 4.1-5.8 7.7-5.8s6.7 2.4 7.7 5.8zM208 0c3.7 0 6.9 2.5 7.8 6.1l6.8 27.3 27.3 6.8c3.6 .9 6.1 4.1 6.1 7.8s-2.5 6.9-6.1 7.8l-27.3 6.8-6.8 27.3c-.9 3.6-4.1 6.1-7.8 6.1s-6.9-2.5-7.8-6.1l-6.8-27.3-27.3-6.8c-3.6-.9-6.1-4.1-6.1-7.8s2.5-6.9 6.1-7.8l27.3-6.8 6.8-27.3c.9-3.6 4.1-6.1 7.8-6.1z"/>
+            </svg>
+            <svg xmlns="http://www.w3.org/2000/svg" height="30" width="40" viewBox="0 0 640 512" fill="currentColor" class="inline-svg">
+              <path d="M352 124.5l-51.9-13c-6.5-1.6-11.3-7.1-12-13.8s2.8-13.1 8.7-16.1l40.8-20.4L294.4 28.8c-5.5-4.1-7.8-11.3-5.6-17.9S297.1 0 304 0L416 0l32 0 16 0c30.2 0 58.7 14.2 76.8 38.4l57.6 76.8c6.2 8.3 9.6 18.4 9.6 28.8c0 26.5-21.5 48-48 48l-21.5 0c-17 0-33.3-6.7-45.3-18.7L480 160l-32 0 0 21.5c0 24.8 12.8 47.9 33.8 61.1l106.6 66.6c32.1 20.1 51.6 55.2 51.6 93.1C640 462.9 590.9 512 530.2 512L496 512l-64 0L32.3 512c-3.3 0-6.6-.4-9.6-1.4C13.5 507.8 6 501 2.4 492.1C1 488.7 .2 485.2 0 481.4c-.2-3.7 .3-7.3 1.3-10.7c2.8-9.2 9.6-16.7 18.6-20.4c3-1.2 6.2-2 9.5-2.2L433.3 412c8.3-.7 14.7-7.7 14.7-16.1c0-4.3-1.7-8.4-4.7-11.4l-44.4-44.4c-30-30-46.9-70.7-46.9-113.1l0-45.5 0-57zM512 72.3c0-.1 0-.2 0-.3s0-.2 0-.3l0 .6zm-1.3 7.4L464.3 68.1c-.2 1.3-.3 2.6-.3 3.9c0 13.3 10.7 24 24 24c10.6 0 19.5-6.8 22.7-16.3zM130.9 116.5c16.3-14.5 40.4-16.2 58.5-4.1l130.6 87 0 27.5c0 32.8 8.4 64.8 24 93l-232 0c-6.7 0-12.7-4.2-15-10.4s-.5-13.3 4.6-17.7L171 232.3 18.4 255.8c-7 1.1-13.9-2.6-16.9-9s-1.5-14.1 3.8-18.8L130.9 116.5z"/>
+            </svg>
+          </div>
+          <noscript>Please Enable Javascript in Your Browser</noscript>
+        </div>
+      </center>
+      {% endif %}
+
+    </div>
+  </main>
+
+
+
+  <footer class="bg-no-repeat bg-cover h-60 w-full flex justify-center items-end" style="background-image: url('/static/img/wave.svg');"></footer>
+</main>
+
+<script>
+  // Remove the URL parameter from the address bar without refreshing the page
+  window.history.replaceState({}, document.title, window.location.pathname);
+
+  // Processing pages silently re-check themselves every 10 seconds
+  const isProcessing = {{ 'true' if status == 'processing' or (status == 'ready' and not download_url) else 'false' }};
+  if (isProcessing) {
+    setTimeout(() => location.reload(), 10000);
+  }
+
+  // ── Toggle Inline Iframe Player ──
+  function toggleWatchVideo() {
+    const wrapper = document.getElementById('playerWrapper');
+    const iframe = document.getElementById('playerIframe');
+    const illu = document.getElementById('downloadIllu');
+    const btnText = document.getElementById('watchBtnText');
+    if (!wrapper || !iframe) return;
+
+    const isOpen = wrapper.style.display !== 'none' && wrapper.style.display !== '';
+    if (!isOpen) {
+      iframe.src = '/player/{{ token }}';
+      wrapper.style.display = 'block';
+      if (illu) illu.style.display = 'none';
+      if (btnText) btnText.innerText = 'Close Player';
+      wrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else {
+      wrapper.style.display = 'none';
+      iframe.src = 'about:blank';
+      if (illu) illu.style.display = 'block';
+      if (btnText) btnText.innerText = 'Watch Video';
+    }
+  }
+
+  // ── Auto-reveal Watch Video button once background stream cache is ready ──
+  const isPermanent = {{ 'true' if is_permanent else 'false' }};
+  const hasStreamCache = {{ 'true' if has_stream_cache else 'false' }};
+
+  if (isPermanent && !hasStreamCache) {
+    let checks = 0;
+    const checkTimer = setInterval(async () => {
+      checks++;
+      if (checks > 12) { clearInterval(checkTimer); return; }
+      try {
+        const res = await fetch('/api/download/{{ token }}');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.has_stream_cache) {
+            clearInterval(checkTimer);
+            const container = document.getElementById('watchBtnContainer');
+            if (container) container.style.display = 'block';
+          }
+        }
+      } catch (e) {}
+    }, 3000);
+  }
+</script>
+</body>
+</html>

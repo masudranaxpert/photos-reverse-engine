@@ -1,0 +1,815 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="referrer" content="no-referrer">
+  <title>{{ filename or 'Video Player' }}</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body,
+    #artplayer {
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+    }
+
+    .state-msg {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      color: #94a3b8;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      text-align: center;
+      padding: 24px;
+    }
+
+    .state-msg h2 {
+      color: #f1f5f9;
+      font-size: 1.25rem;
+      margin-bottom: 8px;
+    }
+
+    /* ── JWPlayer-Style Center Controls ── */
+    .center-controls-bar {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 2.6rem;
+      pointer-events: auto;
+      user-select: none;
+    }
+
+    .center-ctrl-btn {
+      background: transparent;
+      border: none;
+      color: #ffffff;
+      border-radius: 50%;
+      width: 76px;
+      height: 76px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      padding: 6px;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .center-ctrl-btn svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      filter: drop-shadow(0 3px 10px rgba(0, 0, 0, 0.85));
+    }
+
+    .center-ctrl-btn:hover {
+      opacity: 0.85;
+      transform: scale(1.1);
+    }
+
+    .center-ctrl-btn:active {
+      transform: scale(0.9);
+    }
+
+    .center-ctrl-btn.btn-play-toggle {
+      width: 96px;
+      height: 96px;
+      padding: 4px;
+    }
+
+    /* Both icons live in the DOM; only display is toggled (ArtPlayer's own pattern) */
+    .btn-play-toggle>.icon-wrap {
+      width: 100%;
+      height: 100%;
+    }
+
+    .btn-play-toggle>.icon-pause {
+      display: none;
+    }
+
+    .btn-play-toggle[data-state="playing"]>.icon-play {
+      display: none;
+    }
+
+    .btn-play-toggle[data-state="playing"]>.icon-pause {
+      display: block;
+    }
+
+    /* Hide default ArtPlayer big center state button */
+    .art-state {
+      display: none !important;
+    }
+
+    /* ── Loading spinner colour ──
+       Stock markup, stock animation — only the colour changes. Artplayer paints it
+       white via `.art-video-player svg { fill: var(--art-font-color) }`, which hits
+       the <svg> element and lets the bars inherit. A two-class selector outranks it.
+       The spinner's backdrop <rect class="bk"> carries its own fill="none", and an
+       element's own attribute beats an inherited value, so it stays transparent. */
+    .art-video-player .art-loading svg {
+      fill: var(--art-theme);
+    }
+
+    /* ── Buffering: yield the centre to the spinner ──
+       Artplayer toggles .art-loading-show on the player root and uses that exact
+       hook to hide its own .art-state button. Mirroring it here means the spinner
+       and our play/skip icons can never stack on top of each other, with no JS. */
+    .art-video-player.art-loading-show .art-layer-center-controls {
+      opacity: 0 !important;
+      pointer-events: none !important;
+    }
+
+    .art-video-player.art-loading-show .center-controls-bar {
+      pointer-events: none !important;
+    }
+
+    /* ── Unmute prompt (shown only if autoplay-with-sound was blocked) ── */
+    .unmute-bar {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      background: rgba(0, 0, 0, 0.72);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 999px;
+      padding: 9px 18px;
+      font: 600 14px/1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      cursor: pointer;
+      backdrop-filter: blur(6px);
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .unmute-bar.visible {
+      display: flex;
+    }
+
+    .unmute-bar svg {
+      width: 18px;
+      height: 18px;
+      fill: currentColor;
+    }
+
+    /* Bottom control bar custom icons */
+    .art-control-backward-10 svg,
+    .art-control-forward-10 svg {
+      width: 24px;
+      height: 21px;
+      fill: #ffffff;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    .art-control-backward-10:hover svg,
+    .art-control-forward-10:hover svg {
+      opacity: 0.8;
+      transform: scale(1.12);
+    }
+
+    /* Desktop: center shows ONLY play/pause; skip buttons live in the bottom bar */
+    html.is-desktop .center-ctrl-btn.btn-backward-10,
+    html.is-desktop .center-ctrl-btn.btn-forward-10 {
+      display: none !important;
+    }
+
+    /* Mobile: 3-button center overlay; bottom bar drops skip + pip to save space */
+    html.is-mobile .center-ctrl-btn.btn-backward-10,
+    html.is-mobile .center-ctrl-btn.btn-forward-10 {
+      display: flex !important;
+    }
+
+    html.is-mobile .art-control-pip,
+    html.is-mobile [data-name="pip"] {
+      display: none !important;
+    }
+
+    @media (max-width: 768px) {
+      .center-controls-bar {
+        gap: 2.25rem;
+      }
+
+      .center-ctrl-btn {
+        width: 44px;
+        height: 44px;
+        padding: 3px;
+      }
+
+      .center-ctrl-btn.btn-play-toggle {
+        width: 56px;
+        height: 56px;
+        padding: 2px;
+      }
+
+      .art-control-backward-10 svg,
+      .art-control-forward-10 svg {
+        width: 21px;
+        height: 18px;
+      }
+    }
+
+    /* Narrow phones */
+    @media (max-width: 420px) {
+      .center-controls-bar {
+        gap: 1.75rem;
+      }
+
+      .center-ctrl-btn {
+        width: 38px;
+        height: 38px;
+      }
+
+      .center-ctrl-btn.btn-play-toggle {
+        width: 48px;
+        height: 48px;
+      }
+    }
+
+    /* Landscape phones: keep controls clear of the progress bar */
+    @media (max-height: 450px) and (orientation: landscape) {
+      .center-ctrl-btn {
+        width: 40px;
+        height: 40px;
+      }
+
+      .center-ctrl-btn.btn-play-toggle {
+        width: 50px;
+        height: 50px;
+      }
+    }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/artplayer/dist/artplayer.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/artplayer-plugin-audio-track/dist/artplayer-plugin-audio-track.js"></script>
+</head>
+
+<body>
+  <div id="artplayer">
+    <div class="state-msg">
+      <h2>Loading Stream...</h2>
+      <p>Fetching video streams and audio tracks</p>
+    </div>
+  </div>
+
+  <script>
+    // ── JWPlayer vectors ──
+    const jwDigitsPath = 'M113.2,131.078a21.589,21.589,0,0,0-17.7-10.6,21.589,21.589,0,0,0-17.7,10.6,44.769,44.769,0,0,0,0,46.3,21.589,21.589,0,0,0,17.7,10.6,21.589,21.589,0,0,0,17.7-10.6,44.769,44.769,0,0,0,0-46.3Zm-17.7,47.2c-7.8,0-14.4-11-14.4-24.1s6.6-24.1,14.4-24.1,14.4,11,14.4,24.1S103.4,178.278,95.5,178.278Zm-43.4,9.7v-51l-4.8,4.8-6.8-6.8,13-13a4.8,4.8,0,0,1,8.2,3.4v62.7l-9.6-.1Z';
+    // NOTE: this subpath must start at 214.1 (not 209.2). The closing arc ends at
+    // 214.1, so a 209.2 start leaves a 4.9px sliver at the bracket's top-right corner.
+    const jwArrowPath = 'M214.1,57.778v125.3a4.867,4.867,0,0,1-4.8,4.8H146.6v-19.3h48.2v-96.4H79.1v19.3c0,5.3-3.6,7.2-8,4.3l-41.8-27.9a6.013,6.013,0,0,1-2.7-8,5.887,5.887,0,0,1,2.7-2.7l41.8-27.9c4.4-2.9,8-1,8,4.3v19.3H209.2A4.974,4.974,0,0,1,214.1,57.778Z';
+
+    // Tight viewBoxes: the raw glyphs only fill part of the 240x240 canvas, which made
+    // them render small and off-centre inside their buttons.
+    const SKIP_VIEWBOX = '18 20 204 176';   // skip glyph bbox: x 26-214, y 27.9-188.1
+    const PLAY_VIEWBOX = '52 34 174 172';   // play/pause bbox:  x 59-219, y 40-200
+
+    // Digits bbox is x 40.5-119.7, so 160.2 is twice its centre — mirroring about that
+    // axis flips the "10" back upright after the outer mirror.
+    const DIGITS_MIRROR = 160.2;
+
+    const backward10Svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="${SKIP_VIEWBOX}" fill="currentColor" focusable="false">
+        <path d="${jwDigitsPath}"></path>
+        <path d="${jwArrowPath}"></path>
+      </svg>
+    `;
+
+    // Mirror the whole icon, then mirror the digits back in place so "10" stays
+    // readable AND lands inside the bracket opening instead of across its edge.
+    const forward10Svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="${SKIP_VIEWBOX}" fill="currentColor" focusable="false">
+        <g transform="translate(240, 0) scale(-1, 1)">
+          <path d="${jwArrowPath}"></path>
+          <g transform="translate(${DIGITS_MIRROR}, 0) scale(-1, 1)">
+            <path d="${jwDigitsPath}"></path>
+          </g>
+        </g>
+      </svg>
+    `;
+
+    const playSvg = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="${PLAY_VIEWBOX}" fill="currentColor" focusable="false">
+        <path d="M62.8,199.5c-1,0.8-2.4,0.6-3.3-0.4c-0.4-0.5-0.6-1.1-0.5-1.8V42.6c-0.2-1.3,0.7-2.4,1.9-2.6c0.7-0.1,1.3,0.1,1.9,0.4l154.7,77.7c2.1,1.1,2.1,2.8,0,3.8L62.8,199.5z"/>
+      </svg>
+    `;
+
+    const pauseSvg = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="${PLAY_VIEWBOX}" fill="currentColor" focusable="false">
+        <path d="M100,194.9c0.2,2.6-1.8,4.8-4.4,5c-0.2,0-0.4,0-0.6,0H65c-2.6,0.2-4.8-1.8-5-4.4c0-0.2,0-0.4,0-0.6V45c-0.2-2.6,1.8-4.8,4.4-5c0.2,0,0.4,0,0.6,0h30c2.6-0.2,4.8,1.8,5,4.4c0,0.2,0,0.4,0,0.6V194.9z M180,45.1c0.2-2.6-1.8-4.8-4.4-5c-0.2,0-0.4,0-0.6,0h-30c-2.6-0.2-4.8,1.8-5,4.4c0,0.2,0,0.4,0,0.6V195c-0.2,2.6,1.8,4.8,4.4,5c0.2,0,0.4,0,0.6,0h30c2.6,0.2,4.8-1.8,5-4.4c0-0.2,0-0.4,0-0.6V45.1z"/>
+      </svg>
+    `;
+
+    const speakerSvg = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" focusable="false">
+        <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
+      </svg>
+    `;
+
+    const THEME_COLOR = '#00A8FF';
+
+    async function initPlayer() {
+      const container = document.getElementById('artplayer');
+
+      // Artplayer calls art.play() without a .catch() in several places it owns -- the
+      // bottom-bar play button, the click-on-video toggle, the quality switcher. When a
+      // load or pause lands mid-flight the browser rejects that promise with AbortError
+      // and it surfaces as "Uncaught (in promise)". It's benign by design (see
+      // goo.gl/LdLk22), but we can't attach a handler to a call we don't make.
+      // Only AbortError is swallowed; NotAllowedError, NotSupportedError and every
+      // other real failure still reach the console.
+      window.addEventListener('unhandledrejection', (event) => {
+        if (event.reason && event.reason.name === 'AbortError') {
+          event.preventDefault();
+        }
+      });
+      try {
+        const res = await fetch('/api/download/{{ token }}/manifest');
+        const data = await res.json();
+
+        if (!res.ok || !data.success) {
+          if (res.status === 422 || data.ready === false) {
+            container.innerHTML = `
+              <div class="state-msg">
+                <h2>Video is Still Processing</h2>
+                <p>Google Photos is still transcoding this video. Please refresh in a few minutes.</p>
+              </div>
+            `;
+            return;
+          }
+          throw new Error(data.detail || 'Streaming could not be loaded.');
+        }
+
+        const videoList = data.videos || [];
+        const audioList = data.audios || [];
+        if (videoList.length === 0) {
+          throw new Error('No playable video stream found.');
+        }
+
+        const primaryVideo = videoList[0];
+        const audioUrl = (audioList.length > 0) ? audioList[0].url : null;
+
+        const qualityList = videoList.map((v, i) => ({
+          default: i === 0,
+          html: v.label || v.resolution || `Stream ${i + 1}`,
+          url: v.url,
+        }));
+
+        const plugins = [];
+        if (audioUrl && typeof window.artplayerPluginAudioTrack === 'function') {
+          plugins.push(
+            window.artplayerPluginAudioTrack({
+              url: audioUrl,
+              offset: 0,
+              sync: 0.15,
+            })
+          );
+        }
+
+        const isMobile = Boolean(
+          (typeof Artplayer !== 'undefined' && Artplayer.MOBILE) ||
+          /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(navigator.userAgent)
+        );
+
+        document.documentElement.classList.add(isMobile ? 'is-mobile' : 'is-desktop');
+
+        let art = null;
+        let centerLayer = null;
+        let btnPlayCenter = null;
+        let unmuteBar = null;
+
+        // Distinguishes "the user pressed pause" from "Artplayer paused internally
+        // while swapping the source", which is what the quality switcher does.
+        let userPaused = false;
+
+        // NOTE: never read art.playing here — its getter requires currentTime > 0,
+        // so it lies during the first moments of playback. video.paused is exact.
+        function syncPlayIcon() {
+          if (!btnPlayCenter || !art || !art.video) return;
+          const v = art.video;
+          const state = (!v.paused && !v.ended) ? 'playing' : 'paused';
+          if (btnPlayCenter.dataset.state !== state) {
+            btnPlayCenter.dataset.state = state;
+          }
+        }
+
+        // The audio-track plugin only starts its <audio> element on ArtPlayer's
+        // 'play' / 'pause' events, which are emitted exclusively by art.play() /
+        // art.pause(). Native autoplay never emits them, so always route through these.
+        function togglePlayback() {
+          if (!art || !art.video) return;
+          keepControlsAlive();
+          if (art.video.paused) {
+            userPaused = false;
+            art.play().catch(() => { });
+          } else {
+            userPaused = true;
+            art.pause();
+          }
+        }
+
+        // Artplayer resets its auto-hide countdown only inside the 'control' event,
+        // which fires when controls.show is assigned. Its own trigger is a click on
+        // $video — and our overlay buttons sit above $video and stopPropagation, so
+        // taps on them never reach it. Re-assigning show=true re-emits 'control' and
+        // restarts the 3s timer, matching how every other player treats interaction.
+        function keepControlsAlive() {
+          if (art && art.controls) art.controls.show = true;
+        }
+
+        // Single source of truth for skip distance: buttons and keys share it.
+        const SEEK_SECONDS = 10;
+        const BIG_SEEK_SECONDS = 60;
+
+        function seekBy(seconds) {
+          if (!art || !art.video) return;
+          keepControlsAlive();
+          if (seconds >= 0) {
+            art.forward = seconds;
+            art.notice.show = `Forward ${seconds}s`;
+          } else {
+            art.backward = -seconds;
+            art.notice.show = `Backward ${-seconds}s`;
+          }
+        }
+
+        function changeVolume(delta) {
+          if (!art) return;
+          keepControlsAlive();
+          const next = Math.min(1, Math.max(0, art.volume + delta));
+          art.volume = next;                 // fires video:volumechange -> syncs plugin audio
+          if (next > 0 && art.muted) enableSound();
+          art.notice.show = `Volume: ${Math.round(next * 100)}%`;
+        }
+
+        function toggleMute() {
+          if (!art) return;
+          keepControlsAlive();
+          if (art.muted) {
+            enableSound();
+            art.notice.show = 'Unmuted';
+          } else {
+            art.muted = true;
+            const audio = getPluginAudio();
+            if (audio) audio.muted = true;
+            art.notice.show = 'Muted';
+          }
+        }
+
+        function getPluginAudio() {
+          const p = art && art.plugins && art.plugins.artplayerPluginAudioTrack;
+          return p ? p.audio : null;
+        }
+
+        // <audio>.play() returns a promise that REJECTS with AbortError if anything
+        // pauses the element or swaps its src before playback actually starts. The
+        // plugin fires play() and pause() from six different listeners and our watchdog
+        // adds more, so they collide. Funnelling every call through this pair -- never
+        // pausing while a play() is still settling -- removes the race at the source.
+        let audioPlayPromise = null;
+
+        function startAudio() {
+          const audio = getPluginAudio();
+          if (!audio || !audio.paused) return Promise.resolve();
+          const p = audio.play();
+          if (!p) return Promise.resolve();
+          audioPlayPromise = p;
+          return p.finally(() => {
+            if (audioPlayPromise === p) audioPlayPromise = null;
+          });
+        }
+
+        function stopAudio() {
+          const audio = getPluginAudio();
+          if (!audio) return;
+          if (audioPlayPromise) {
+            audioPlayPromise.then(() => audio.pause(), () => { });
+            return;
+          }
+          if (!audio.paused) audio.pause();
+        }
+
+        // The plugin pauses its <audio> unconditionally on video:waiting, but only
+        // resumes it behind an `art.playing` check — and that getter demands
+        // readyState > 2, which often isn't true yet when video:playing fires after
+        // a buffer. The audio then stays paused for good. This watchdog repairs it.
+        function syncAudio() {
+          const audio = getPluginAudio();
+          const v = art && art.video;
+          if (!audio || !v) return;
+
+          if (v.paused || v.ended) {
+            stopAudio();
+            return;
+          }
+
+          // readyState >= 3 means the video is genuinely advancing, not stalled;
+          // resuming audio while stalled would just drift it out of sync.
+          if (v.readyState < 3) return;
+
+          if (Math.abs(audio.currentTime - v.currentTime) > 0.3) {
+            audio.currentTime = v.currentTime;
+          }
+          startAudio().catch(() => { });
+        }
+
+        art = new Artplayer({
+          container: '#artplayer',
+          url: primaryVideo.url,
+          title: {{ filename| tojson if filename else '""'
+      }},
+    type: 'mp4',
+      volume: 0.9,
+        isLive: false,
+          muted: false,
+
+            // autoplay is intentionally OFF: the option only sets the native
+            // video.autoplay attribute, which bypasses art.play() and therefore
+            // never starts the separate audio track. We call art.play() on ready.
+            autoplay: false,
+
+              // Built-in hotkeys are disabled and re-registered below: the defaults seek
+              // by 5s (our buttons use 10s) and bind Space to the unreliable art.toggle().
+              // The keydown dispatcher itself stays active regardless of this flag.
+              hotkey: false,
+
+                pip: !isMobile,
+                  autoSize: false,
+                    screenshot: false,
+                      setting: true,
+                        loop: false,
+                          playbackRate: true,
+                            aspectRatio: false,
+                              fullscreen: true,
+                                fullscreenWeb: false,
+                                  miniProgressBar: true,
+                                    mutex: true,
+                                      theme: THEME_COLOR,
+                                        quality: qualityList,
+                                          plugins: plugins,
+
+                                            controls: isMobile ? [] : [
+                                              {
+                                                name: 'backward-10',
+                                                position: 'left',
+                                                index: 11,
+                                                html: `<span class="art-icon" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;cursor:pointer;">${backward10Svg}</span>`,
+                                                tooltip: 'Backward 10s',
+                                                click: function () {
+                                                  seekBy(-SEEK_SECONDS);
+                                                },
+                                              },
+                                              {
+                                                name: 'forward-10',
+                                                position: 'left',
+                                                index: 12,
+                                                html: `<span class="art-icon" style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;cursor:pointer;">${forward10Svg}</span>`,
+                                                tooltip: 'Forward 10s',
+                                                click: function () {
+                                                  seekBy(SEEK_SECONDS);
+                                                },
+                                              },
+                                            ],
+
+                                              layers: [
+                                                {
+                                                  name: 'center-controls',
+                                                  html: `
+                <div class="center-controls-bar">
+                  <button type="button" class="center-ctrl-btn btn-backward-10" aria-label="Rewind 10 Seconds" title="Rewind 10s">
+                    ${backward10Svg}
+                  </button>
+                  <button type="button" class="center-ctrl-btn btn-play-toggle" data-state="paused" aria-label="Play / Pause" title="Play / Pause">
+                    <span class="icon-wrap icon-play">${playSvg}</span>
+                    <span class="icon-wrap icon-pause">${pauseSvg}</span>
+                  </button>
+                  <button type="button" class="center-ctrl-btn btn-forward-10" aria-label="Forward 10 Seconds" title="Forward 10s">
+                    ${forward10Svg}
+                  </button>
+                </div>
+              `,
+                                                  style: {
+                                                    position: 'absolute',
+                                                    inset: '0',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    pointerEvents: 'none',
+                                                    zIndex: '25',
+                                                    transition: 'opacity 0.25s ease',
+                                                  },
+                                                  mounted: function ($layer) {
+                                                    centerLayer = $layer;
+                                                    btnPlayCenter = $layer.querySelector('.btn-play-toggle');
+
+                                                    $layer.querySelector('.btn-backward-10').addEventListener('click', (e) => {
+                                                      e.stopPropagation();
+                                                      seekBy(-SEEK_SECONDS);
+                                                    });
+
+                                                    btnPlayCenter.addEventListener('click', (e) => {
+                                                      e.stopPropagation();
+                                                      togglePlayback();
+                                                    });
+
+                                                    $layer.querySelector('.btn-forward-10').addEventListener('click', (e) => {
+                                                      e.stopPropagation();
+                                                      seekBy(SEEK_SECONDS);
+                                                    });
+                                                  },
+                                                },
+                                                {
+                                                  name: 'unmute-prompt',
+                                                  html: `
+                <button type="button" class="unmute-bar" aria-label="Unmute">
+                  ${speakerSvg}<span>Tap for sound</span>
+                </button>
+              `,
+                                                  style: {
+                                                    position: 'absolute',
+                                                    top: '16px',
+                                                    left: '50%',
+                                                    transform: 'translateX(-50%)',
+                                                    pointerEvents: 'auto',
+                                                    zIndex: '30',
+                                                  },
+                                                  mounted: function ($layer) {
+                                                    unmuteBar = $layer.querySelector('.unmute-bar');
+                                                    unmuteBar.addEventListener('click', (e) => {
+                                                      e.stopPropagation();
+                                                      enableSound();
+                                                    });
+                                                  },
+                                                },
+                                              ],
+        });
+
+    // ── Sound / autoplay handling ──────────────────────────────────────────
+    function enableSound() {
+      if (!art) return;
+      art.muted = false;                 // fires video:volumechange -> unmutes plugin audio
+      const audio = getPluginAudio();
+      if (audio) {
+        audio.muted = false;
+        if (art.video && !art.video.paused) startAudio().catch(() => { });
+      }
+      if (unmuteBar) unmuteBar.classList.remove('visible');
+      if (art.video && art.video.paused) {
+        userPaused = false;
+        art.play().catch(() => { });
+      }
+    }
+
+    async function startPlayback() {
+      userPaused = false;
+      try {
+        // art.play() emits 'play', which is what actually starts the audio track.
+        await art.play();
+        await startAudio();
+      } catch (err) {
+        // Browser blocked autoplay with sound: fall back to muted and prompt.
+        art.muted = true;
+        const audio = getPluginAudio();
+        if (audio) audio.muted = true;
+        try {
+          await art.play();
+        } catch (_) { /* fully blocked; user must press play */ }
+        if (unmuteBar) unmuteBar.classList.add('visible');
+      }
+      syncPlayIcon();
+    }
+
+    art.on('ready', startPlayback);
+
+    // Switching quality runs: art.pause() -> set video.src -> on canplay, resume
+    // only `if (art.playing)` captured BEFORE the pause. That's the same broken
+    // getter, so an early switch leaves the video loaded but stopped. 'restart' is
+    // the event Artplayer actually emits after the new source is playable
+    // (there is no 'switchQuality' event), so recover from there.
+    art.on('restart', () => {
+      if (!userPaused) art.play().catch(() => { });
+      syncAudio();
+    });
+
+    // ── Icon sync: mirror ArtPlayer's own play/pause control ──
+    art.on('video:playing', syncPlayIcon);
+    art.on('video:pause', syncPlayIcon);
+    art.on('video:ended', syncPlayIcon);
+    art.on('video:timeupdate', syncPlayIcon);   // cheap safety net, no-op when unchanged
+
+    // Artplayer clears the spinner on video:progress via `art.playing &&`, which is
+    // false while currentTime is still 0 — so it lingers over the first frames.
+    function clearStaleLoading() {
+      if (art.loading.show && art.video && !art.video.paused && art.video.readyState >= 3) {
+        art.loading.show = false;
+      }
+    }
+
+    art.on('video:playing', clearStaleLoading);
+    art.on('video:timeupdate', clearStaleLoading);
+
+    // Audio recovery: timeupdate is the key one — it only fires while the video
+    // is actually advancing, making it a reliable "we're back from buffering" tick.
+    art.on('video:playing', syncAudio);
+    art.on('video:canplay', syncAudio);
+    art.on('video:seeked', syncAudio);
+    art.on('video:pause', syncAudio);
+    art.on('video:timeupdate', syncAudio);
+
+    art.on('video:pause', () => {
+      if (centerLayer) {
+        centerLayer.style.display = 'flex';
+        centerLayer.style.opacity = '1';
+      }
+    });
+
+    // ── Center overlay visibility follows the control bar ──
+    art.on('control', (visible) => {
+      if (!centerLayer || !art.video) return;
+      if (visible || art.video.paused) {
+        centerLayer.style.display = 'flex';
+        centerLayer.style.opacity = '1';
+      } else {
+        centerLayer.style.opacity = '0';
+        setTimeout(() => {
+          // art.controls.show reads the art-control-show class off the player root,
+          // so it reflects any change made since this fade started.
+          if (!art.controls.show && art.video && !art.video.paused) {
+            centerLayer.style.display = 'none';
+          }
+        }, 250);
+      }
+    });
+
+    // ── Keyboard shortcuts (desktop) ──────────────────────────────────────
+    // Artplayer skips Hotkey.init() entirely on mobile, so add() is a harmless
+    // no-op there. Modifier combos never reach art.hotkey (it bails on
+    // alt/ctrl/meta/shift), so Shift+Arrow is handled separately below.
+    function registerHotkeys() {
+      const K = art && art.hotkey;
+      if (!K) return;
+
+      K.add('Space', togglePlayback);
+      K.add('KeyK', togglePlayback);
+
+      K.add('ArrowLeft', () => seekBy(-SEEK_SECONDS));
+      K.add('ArrowRight', () => seekBy(SEEK_SECONDS));
+      K.add('KeyJ', () => seekBy(-SEEK_SECONDS));
+      K.add('KeyL', () => seekBy(SEEK_SECONDS));
+
+      K.add('ArrowUp', () => changeVolume(0.1));
+      K.add('ArrowDown', () => changeVolume(-0.1));
+      K.add('KeyM', toggleMute);
+
+      K.add('KeyF', () => { art.fullscreen = !art.fullscreen; });
+      K.add('Escape', () => { if (art.fullscreen) art.fullscreen = false; });
+
+      // 0-9 jump to that tenth of the video
+      for (let n = 0; n <= 9; n++) {
+        K.add(`Digit${n}`, () => {
+          if (art.duration) art.seek = art.duration * (n / 10);
+        });
+      }
+
+      // Shift + Left/Right for a coarse 60s jump
+      art.proxy(document, 'keydown', (e) => {
+        if (!art.isFocus || !e.shiftKey || e.ctrlKey || e.altKey || e.metaKey) return;
+        const tag = document.activeElement ? document.activeElement.tagName : '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+        if (e.code === 'ArrowLeft') {
+          e.preventDefault();
+          seekBy(-BIG_SEEK_SECONDS);
+        } else if (e.code === 'ArrowRight') {
+          e.preventDefault();
+          seekBy(BIG_SEEK_SECONDS);
+        }
+      });
+    }
+
+    registerHotkeys();
+
+    // This page is the player, so keys should work without a click first.
+    // Artplayer normally only sets isFocus after a click inside the player.
+    art.on('ready', () => { art.isFocus = true; });
+
+      } catch (err) {
+      container.innerHTML = `
+          <div class="state-msg">
+            <h2>Playback Error</h2>
+            <p>${err.message || 'Failed to load video stream.'}</p>
+          </div>
+        `;
+    }
+    }
+    initPlayer();
+  </script>
+</body>
+
+</html>

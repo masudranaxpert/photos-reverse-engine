@@ -1,0 +1,109 @@
+/* ============================================================
+   Auth / Login Page — light, airy, centered card
+   ============================================================ */
+
+.auth-wrapper {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Soft ambient accent blobs behind the card */
+.auth-wrapper::before,
+.auth-wrapper::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(90px);
+  pointer-events: none;
+}
+
+.auth-wrapper::before {
+  width: 480px;
+  height: 480px;
+  top: -160px;
+  right: -120px;
+  background: rgba(99, 102, 241, 0.14);
+}
+
+.auth-wrapper::after {
+  width: 420px;
+  height: 420px;
+  bottom: -150px;
+  left: -110px;
+  background: rgba(139, 92, 246, 0.12);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 430px;
+  padding: 42px 36px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  position: relative;
+  z-index: 1;
+  animation: cardFadeUp 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes cardFadeUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.auth-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.auth-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 62px;
+  height: 62px;
+  border-radius: 19px;
+  background: var(--gradient-accent);
+  color: #fff;
+  box-shadow: var(--shadow-accent);
+  margin-bottom: 18px;
+}
+
+.auth-title {
+  font-size: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+.auth-subtitle {
+  font-size: 0.87rem;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
+
+/* Error alert */
+.auth-error {
+  display: none;
+  padding: 11px 14px;
+  margin-bottom: 18px;
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--danger-deep);
+  background: var(--danger-soft);
+  border: 1px solid rgba(244, 63, 94, 0.3);
+  border-radius: var(--radius-md);
+}
+
+/* Submit button */
+.auth-submit-btn { width: 100%; margin-top: 6px; padding: 13px; font-size: 0.95rem; }
+@media (max-width: 480px) {
+  .auth-card { padding: 32px 22px; }
+  .auth-title { font-size: 1.32rem; }
+}

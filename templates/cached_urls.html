@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}30-Min Cached URLs • Instant Engine{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/dashboard.css">
+<link rel="stylesheet" href="/static/css/cached_urls.css?v=1.4">
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container cached-page">
+
+  <!-- Header Section -->
+  <div class="cached-header-bar">
+    <div class="cached-header-left">
+      <a href="/" class="cached-back-link" title="Back to Dashboard">
+        <span data-icon="chevron-left" data-size="14"></span> Dashboard
+      </a>
+      <div class="cached-title-row">
+        <div class="cached-icon-box">
+          <span data-icon="zap" data-size="22"></span>
+        </div>
+        <div class="cached-title-meta">
+          <h1>30-Min Cached Download URLs</h1>
+          <p>Live stream download tokens cached in SQLite WAL memory with 30-minute validity</p>
+        </div>
+      </div>
+    </div>
+    <div class="cached-header-actions">
+      <button id="purge-expired-btn" class="btn btn-danger-outline btn-sm" onclick="purgeExpiredUrls()" title="Purge expired entries">
+        <span data-icon="trash-2" data-size="14"></span> Purge Expired
+      </button>
+      <button id="refresh-cached-btn" class="btn btn-secondary btn-sm" onclick="loadCachedUrls(currentCachedUrlsPage)" title="Refresh list">
+        <span data-icon="refresh-cw" data-size="14"></span> Refresh
+      </button>
+    </div>
+  </div>
+
+  <!-- Summary Statistics Grid -->
+  <div class="stats-grid">
+    <div class="stat-card panel">
+      <div class="stat-icon amber"><span data-icon="zap" data-size="22"></span></div>
+      <div class="stat-info">
+        <div class="stat-value" id="summary-total-cached">0</div>
+        <div class="stat-label">Total Cached URLs</div>
+      </div>
+    </div>
+
+    <div class="stat-card panel">
+      <div class="stat-icon emerald"><span data-icon="clock" data-size="22"></span></div>
+      <div class="stat-info">
+        <div class="stat-value" id="summary-active-cached">0</div>
+        <div class="stat-label">Active (Non-Expired)</div>
+      </div>
+    </div>
+
+    <div class="stat-card panel">
+      <div class="stat-icon sky"><span data-icon="database" data-size="22"></span></div>
+      <div class="stat-info">
+        <div class="stat-value">30 Min</div>
+        <div class="stat-label">Cache Duration (TTL)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Data Panel -->
+  <div class="panel cached-panel">
+    <!-- Filter and Search Toolbar -->
+    <div class="cached-filter-bar">
+      <div class="cached-search-box">
+        <span class="search-icon"><span data-icon="search" data-size="16"></span></span>
+        <input
+          type="text"
+          id="cached-search-input"
+          class="form-input"
+          placeholder="Search by Media Key or Dedup Key…"
+        >
+      </div>
+
+      <div class="cached-filter-selects">
+        <select id="cached-source-filter" class="form-select">
+          <option value="all">All Sources</option>
+          <option value="google_drive">Google Drive</option>
+          <option value="web">Web Client</option>
+          <option value="mobile">Mobile Client</option>
+        </select>
+
+        <select id="cached-status-filter" class="form-select">
+          <option value="all">All Statuses</option>
+          <option value="active">Active Only</option>
+          <option value="expired">Expired Only</option>
+        </select>
+
+        <select id="cached-limit-select" class="form-select">
+          <option value="10">10 / page</option>
+          <option value="25">25 / page</option>
+          <option value="50">50 / page</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Data Table -->
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Media Key</th>
+            <th>Dedup Key</th>
+            <th>Source</th>
+            <th>Created</th>
+            <th>Expires In</th>
+            <th>Download URL</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="cached-urls-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div class="pagination-container">
+      <div class="page-info" id="cached-page-info">Showing 0 items</div>
+      <div class="pagination-controls" id="cached-pagination"></div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/cached_urls.js?v=1.1"></script>
+{% endblock %}

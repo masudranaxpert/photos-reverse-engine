@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Instant Engine{% endblock %}</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Design System -->
+  <link rel="stylesheet" href="/static/css/main.css?v=6">
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+  {% block header %}
+  <!-- Header Navbar -->
+  <header class="app-header">
+    <div class="brand-container">
+      <div class="brand-icon"><span data-icon="aperture" data-size="22"></span></div>
+      <div class="brand-text">Instant Engine</div>
+    </div>
+
+    <div class="header-actions">
+      <div class="user-badge">
+        <span data-icon="circle-user-round" data-size="17"></span>
+        <span id="current-user-display">Admin</span>
+      </div>
+      <button class="btn btn-danger-outline btn-sm" onclick="logout()" title="Sign out">
+        <span data-icon="log-out" data-size="15"></span>
+        <span class="btn-label">Sign Out</span>
+      </button>
+    </div>
+  </header>
+  {% endblock %}
+
+  <!-- Main Content Body -->
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Global Toast Container -->
+  <div id="toast-container"></div>
+
+  <!-- Global Confirm Dialog (used by UI.confirm) -->
+  <div id="confirm-dialog" class="modal-backdrop">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h3 id="confirm-title">Are you sure?</h3>
+      </div>
+      <p id="confirm-message" class="confirm-message"></p>
+      <div class="modal-actions">
+        <button id="confirm-cancel" class="btn btn-secondary">Cancel</button>
+        <button id="confirm-ok" class="btn btn-danger">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript (order matters: icons -> ui -> api -> auth) -->
+  <script src="/static/js/icons.js?v=5"></script>
+  <script src="/static/js/ui.js?v=3"></script>
+  <script src="/static/js/api.js?v=3"></script>
+  <script src="/static/js/auth.js?v=2"></script>
+  <script>
+    try {
+      var tok = localStorage.getItem("photos_engine_token") || localStorage.getItem("auth_token");
+      if (tok && !document.cookie.includes("access_token=")) {
+        document.cookie = "access_token=" + encodeURIComponent(tok) + "; path=/; max-age=604800; SameSite=Lax";
+      }
+    } catch(e) {}
+  </script>
+  {% block extra_js %}{% endblock %}
+</body>
+</html>

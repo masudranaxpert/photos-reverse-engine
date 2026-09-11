@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}Audit Log • Instant Engine{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/dashboard.css">
+<link rel="stylesheet" href="/static/css/audit.css?v=1.1">
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+
+  <!-- Header Section -->
+  <div class="audit-header-bar">
+    <div class="audit-header-left">
+      <a href="/" class="audit-back-link" title="Back to Dashboard">
+        <span data-icon="chevron-left" data-size="14"></span> Dashboard
+      </a>
+      <div class="audit-title-row">
+        <div class="audit-icon-box">
+          <span data-icon="inbox" data-size="22"></span>
+        </div>
+        <div class="audit-title-meta">
+          <h1>Audit Log</h1>
+          <p>System events, alerts and import issues — newest first, capped at the latest 50 records</p>
+        </div>
+      </div>
+    </div>
+    <div class="audit-header-actions">
+      <select id="audit-status-filter" class="form-select" title="Filter by status">
+        <option value="all">All Entries</option>
+        <option value="active">Active Only</option>
+      </select>
+      <button id="audit-dismiss-all-btn" class="btn btn-danger-outline btn-sm" onclick="dismissAllAudit()" title="Dismiss every active alert">
+        <span data-icon="x" data-size="14"></span> Dismiss All
+      </button>
+      <button id="audit-refresh-btn" class="btn btn-secondary btn-sm" onclick="loadAudit(1)" title="Refresh log">
+        <span data-icon="loader-circle" data-size="14"></span> Refresh
+      </button>
+    </div>
+  </div>
+
+  <!-- Audit Table -->
+  <div class="panel">
+    <div class="table-responsive">
+      <table class="data-table audit-table">
+        <thead>
+          <tr>
+            <th>Level</th>
+            <th>Event</th>
+            <th>Source</th>
+            <th>Status</th>
+            <th>Updated</th>
+            <th style="text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="audit-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div class="pagination-container">
+      <div class="page-info" id="audit-page-info">Showing 0 entries</div>
+      <div class="pagination-controls" id="audit-pagination"></div>
+    </div>
+  </div>
+
+
+  <!-- Reset Result Modal -->
+  <div id="reset-result-modal" class="modal-backdrop">
+    <div class="modal-dialog modal-sm">
+      <div class="modal-header">
+        <h3 id="reset-result-title">Reset Complete</h3>
+      </div>
+      <div id="reset-result-body"></div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" onclick="UI.closeModal('reset-result-modal')">Done</button>
+      </div>
+    </div>
+  </div>
+ {% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/audit.js?v=1.1"></script>
+{% endblock %}

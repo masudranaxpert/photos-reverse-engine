@@ -1,0 +1,923 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard • Instant Engine{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="/static/css/dashboard.css?v=4">
+{% endblock %}
+
+{% block content %}
+<div class="dashboard-container">
+
+  <!-- Top Metrics Overview -->
+  <div class="stats-grid">
+    <div class="stat-card panel">
+      <div class="stat-icon indigo"><span data-icon="images" data-size="22"></span></div>
+      <div class="stat-info">
+        <div class="stat-value" id="stat-total-media">0</div>
+        <div class="stat-label">Total Media Files</div>
+      </div>
+    </div>
+
+    <div class="stat-card panel">
+      <div class="stat-icon sky"><span data-icon="cookie" data-size="22"></span></div>
+      <div class="stat-info">
+        <div class="stat-value" id="stat-web-sessions">0</div>
+        <div class="stat-label">Active Web Sessions</div>
+      </div>
+    </div>
+
+    <div class="stat-card panel">
+      <div class="stat-icon emerald"><span data-icon="smartphone" data-size="22"></span></div>
+      <div class="stat-info">
+        <div class="stat-value" id="stat-mobile-accounts">0</div>
+        <div class="stat-label">Active Mobile Client</div>
+      </div>
+    </div>
+
+    <a href="/cached-urls" class="stat-card panel" id="cached-urls-card" style="text-decoration: none; color: inherit; cursor: pointer; transition: transform .15s, box-shadow .15s;" title="Click to view all 30-min cached download URLs">
+      <div class="stat-icon amber"><span data-icon="zap" data-size="22"></span></div>
+      <div class="stat-info">
+        <div class="stat-value" id="stat-cached-links">0</div>
+        <div class="stat-label" style="display: flex; align-items: center; justify-content: space-between;">
+          <span>30-Min Cached URLs</span>
+          <span data-icon="arrow-right" data-size="12" style="opacity: 0.7;"></span>
+        </div>
+      </div>
+    </a>
+
+    <a href="/stream-cache" class="stat-card panel" id="stream-cache-card" style="text-decoration: none; color: inherit; cursor: pointer; transition: transform .15s, box-shadow .15s;" title="Click to view all 20-min cached streaming URLs">
+      <div class="stat-icon purple"><span data-icon="play-circle" data-size="22"></span></div>
+      <div class="stat-info">
+        <div class="stat-value" id="stat-stream-cache">0</div>
+        <div class="stat-label" style="display: flex; align-items: center; justify-content: space-between;">
+          <span>20-Min Stream Cache</span>
+          <span data-icon="arrow-right" data-size="12" style="opacity: 0.7;"></span>
+        </div>
+      </div>
+    </a>
+  </div>
+
+  <!-- System Audit Strip (one-line summary, full log on /audit) -->
+  <div id="audit-strip" class="audit-strip" hidden>
+    <a href="/audit" class="audit-strip-main" title="Open Audit Log">
+      <span class="audit-strip-icon" id="audit-strip-icon"><span data-icon="circle-alert" data-size="16"></span></span>
+      <span class="audit-strip-text" id="audit-strip-text"></span>
+    </a>
+    <a href="/audit" class="btn btn-secondary btn-sm audit-strip-btn">
+      Audit Log <span data-icon="chevron-right" data-size="14"></span>
+    </a>
+  </div>
+
+  <!-- Cookies Health Banner -->
+  <div id="cookies-health-banner" class="panel" style="padding:.85rem 1.25rem; display:flex; align-items:center; gap:.75rem; margin-bottom:0; border-left: 3px solid var(--accent-emerald);" hidden>
+    <span id="cookies-health-icon" data-icon="shield-check" data-size="18"></span>
+    <div style="flex:1">
+      <strong id="cookies-health-title" style="font-size:.9rem">Checking cookies…</strong>
+      <div id="cookies-health-detail" style="font-size:.78rem; color:var(--text-muted); margin-top:.15rem"></div>
+    </div>
+    <button class="btn btn-secondary btn-sm" onclick="checkCookiesHealth()" title="Re-check">
+      <span data-icon="refresh-cw" data-size="14"></span>
+    </button>
+  </div>
+
+  <!-- Navigation Tabs -->
+  <div class="tabs-nav">
+    <button class="tab-btn active" data-tab="media-tab">
+      <span data-icon="folder" data-size="16"></span> Media Explorer
+    </button>
+    <button class="tab-btn" data-tab="importer-tab">
+      <span data-icon="cloud-upload" data-size="16"></span> Importer
+    </button>
+    <button class="tab-btn" data-tab="web-tab">
+      <span data-icon="cookie" data-size="16"></span> Cookie Sessions
+    </button>
+    <button class="tab-btn" data-tab="mobile-tab">
+      <span data-icon="smartphone" data-size="16"></span> Mobile Auth
+    </button>
+    <button class="tab-btn" data-tab="keys-tab">
+      <span data-icon="key" data-size="16"></span> API Keys
+    </button>
+    <button class="tab-btn" data-tab="jobs-tab">
+      <span data-icon="cpu" data-size="16"></span> Background Jobs
+    </button>
+    <button class="tab-btn" data-tab="admin-tab">
+      <span data-icon="settings" data-size="16"></span> Admins &amp; Settings
+    </button>
+  </div>
+
+  <!-- Tab 1: Media Files Explorer -->
+  <div id="media-tab" class="tab-content active">
+    <!-- Pipeline Stage Selector Strip -->
+    <div class="media-stage-bar">
+      <button type="button" class="stage-pill active" id="stage-btn-all" onclick="setMediaStage('all')">
+        <div class="stage-pill-icon"><span data-icon="folder" data-size="18"></span></div>
+        <div class="stage-pill-text">
+          <span class="stage-pill-title">All Files</span>
+          <span class="stage-pill-desc">Drive master index</span>
+        </div>
+        <span class="stage-pill-count" id="stage-count-all">0</span>
+      </button>
+
+      <button type="button" class="stage-pill" id="stage-btn-temp" onclick="setMediaStage('temp')">
+        <div class="stage-pill-icon stage-icon-temp"><span data-icon="clock" data-size="18"></span></div>
+        <div class="stage-pill-text">
+          <span class="stage-pill-title">Temporary Queue</span>
+          <span class="stage-pill-desc">Web upload waiting for worker</span>
+        </div>
+        <span class="stage-pill-count count-temp" id="stage-count-temp">0</span>
+      </button>
+
+      <button type="button" class="stage-pill" id="stage-btn-permanent" onclick="setMediaStage('permanent')">
+        <div class="stage-pill-icon stage-icon-perm"><span data-icon="shield-check" data-size="18"></span></div>
+        <div class="stage-pill-text">
+          <span class="stage-pill-title">Permanent Library</span>
+          <span class="stage-pill-desc">Promoted to mobile (Unlimited)</span>
+        </div>
+        <span class="stage-pill-count count-perm" id="stage-count-permanent">0</span>
+      </button>
+    </div>
+
+    <!-- Filter & Search Bar -->
+    <div class="filter-bar">
+      <div class="search-input-wrapper">
+        <span class="search-icon"><span data-icon="search" data-size="17"></span></span>
+        <input
+          type="text"
+          id="media-search-input"
+          class="form-input"
+          placeholder="Search by Filename, Drive ID, Media Key, or Token..."
+        >
+      </div>
+
+      <div class="filter-actions">
+        <button class="btn btn-secondary" onclick="loadMediaFiles(1)">
+          <span data-icon="refresh-cw" data-size="15"></span> Refresh
+        </button>
+        <button class="btn btn-primary" id="btn-requeue-errors" onclick="confirmRequeueErrorFiles()" title="Re-queue and retry all error files">
+          <span data-icon="rotate-ccw" data-size="15"></span> Re-queue All Errors
+        </button>
+        <button class="btn btn-danger" id="btn-clear-errors" onclick="confirmClearErrorFiles()" title="Delete all error or failed files">
+          <span data-icon="trash-2" data-size="15"></span> Delete All Errors
+        </button>
+        <button class="btn btn-danger" id="btn-clear-temp" style="display:none;" onclick="confirmClearTempQueue()">
+          <span data-icon="trash-2" data-size="15"></span> Delete All Temp
+        </button>
+        <button class="btn btn-danger" id="btn-clear-permanent" style="display:none;" onclick="confirmClearPermanentLibrary()">
+          <span data-icon="trash-2" data-size="15"></span> Delete All Permanent
+        </button>
+      </div>
+    </div>
+
+    <!-- Media Data Table -->
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead id="media-table-head">
+          <tr>
+            <th>File / Title</th>
+            <th>Drive ID</th>
+            <th>Stage</th>
+            <th>Download Link</th>
+            <th>Date</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="media-table-body"></tbody>
+      </table>
+    </div>
+
+    <!-- Pagination Controls -->
+    <div class="pagination-container">
+      <div id="pagination-info" class="page-info">Showing 0 items</div>
+      <div id="pagination-controls" class="pagination-controls"></div>
+    </div>
+  </div>
+
+  <!-- Tab 2: Importer (Drive + Share) -->
+  <div id="importer-tab" class="tab-content">
+
+    <!-- Section A: Google Drive Importer -->
+    <div class="panel importer-panel">
+      <h2 class="panel-title"><span data-icon="hard-drive" data-size="22"></span> Google Drive Importer</h2>
+      <p class="panel-desc">
+        Import any Google Drive video or photo straight into your Google Photos library.
+      </p>
+
+      <form id="drive-import-form">
+        <div class="form-group">
+          <label class="form-label" for="drive_file_id">Google Drive File ID or URL</label>
+          <input
+            type="text"
+            id="drive_file_id"
+            name="drive_file_id"
+            class="form-input"
+            placeholder="e.g. 1a2B3c4D5e... or https://drive.google.com/file/d/.../view"
+            required
+          >
+        </div>
+
+
+        <button type="submit" class="btn btn-primary btn-block">
+          Import &amp; Get Download Link <span data-icon="arrow-right" data-size="16"></span>
+        </button>
+      </form>
+
+      <!-- Import Success Result Box -->
+      <div id="drive-import-result" class="result-card" hidden>
+        <div class="result-title"><span data-icon="check" data-size="17"></span> <span id="drive-res-status-text">Import Queued!</span></div>
+        <div class="result-keys">
+          <div><strong>Download Link:</strong>
+            <a id="drive-res-download-link" href="#" target="_blank" class="code-pill" style="text-decoration:none"></a>
+          </div>
+          <div><strong>Token:</strong> <span id="drive-res-token" class="code-pill"></span></div>
+          <div><strong>Filename:</strong> <span id="drive-res-filename" class="code-pill"></span></div>
+          <div><strong>File Size:</strong> <span id="drive-res-filesize" class="code-pill"></span></div>
+        </div>
+        <div class="result-actions">
+          <button id="drive-res-copy-btn" class="btn btn-secondary btn-sm">
+            <span data-icon="copy" data-size="14"></span> Copy Download Link
+          </button>
+          <a id="drive-res-open-btn" href="#" target="_blank" class="btn btn-primary btn-sm" style="text-decoration:none">
+            <span data-icon="external-link" data-size="14"></span> Open Download Page
+          </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Section B: Share Link Importer -->
+    <div class="panel importer-panel" style="margin-top: 1.25rem;">
+      <h2 class="panel-title"><span data-icon="globe" data-size="22"></span> Share Link Importer</h2>
+      <p class="panel-desc">
+        Paste a public Google Photos share link to import its photos into your library.
+      </p>
+
+      <form id="share-import-form">
+        <div class="form-group">
+          <label class="form-label" for="share_url">Google Photos Share Link</label>
+          <input
+            type="url"
+            id="share_url"
+            name="share_url"
+            class="form-input"
+            placeholder="https://photos.app.goo.gl/..."
+            required
+          >
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-block">
+          Import Photos <span data-icon="arrow-right" data-size="16"></span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+
+  <!-- Tab 4: Web Cookie Sessions -->
+  <div id="web-tab" class="tab-content">
+    <div class="section-head">
+      <div>
+        <h2 class="section-title"><span data-icon="cookie" data-size="22"></span> Web Sessions</h2>
+        <p class="section-desc">Manage the saved browser sessions used for importing.</p>
+      </div>
+      <div style="display: flex; gap: 0.5rem; align-items: center;">
+        <button class="btn btn-danger btn-sm" onclick="confirmResetAccount()" title="Wipe Google Photos library & empty trash to recover quota">
+          <span data-icon="trash-2" data-size="14"></span> Reset / Empty Trash
+        </button>
+        <button id="open-add-session-modal" class="btn btn-primary btn-sm">
+          <span data-icon="plus" data-size="15"></span> Add Session
+        </button>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Account</th>
+            <th>Status</th>
+            <th>Last Updated</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="sessions-table-body"></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- Tab 5: Mobile Auth Accounts -->
+  <div id="mobile-tab" class="tab-content">
+    <div class="section-head">
+      <div>
+        <h2 class="section-title"><span data-icon="smartphone" data-size="22"></span> Mobile Accounts</h2>
+        <p class="section-desc">Manage the Google accounts used by the importer.</p>
+      </div>
+      <button id="open-add-mobile-modal" class="btn btn-primary btn-sm">
+        <span data-icon="plus" data-size="15"></span> Add Account
+      </button>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Account Email</th>
+            <th>Status</th>
+            <th>Last Updated</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="mobile-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tab 6: Admins Management -->
+  <div id="admin-tab" class="tab-content">
+    <div class="section-head">
+      <div>
+        <h2 class="section-title"><span data-icon="shield-check" data-size="22"></span> Dashboard Administrators</h2>
+        <p class="section-desc">Manage administrators who have access to this dashboard.</p>
+      </div>
+      <button id="open-add-admin-modal" class="btn btn-primary btn-sm">
+        <span data-icon="plus" data-size="15"></span> Add Administrator
+      </button>
+    </div>
+
+    <div class="table-responsive" style="margin-bottom: 2rem;">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Username</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="admins-table-body"></tbody>
+      </table>
+    </div>
+
+    <!-- Google Drive API Configuration -->
+    <div class="panel">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+        <div>
+          <h3 class="section-title"><span data-icon="key" data-size="20"></span> Google Drive API Configuration</h3>
+          <p class="section-desc">API Key used to fetch file names, exact sizes, and verify file accessibility before importing from Google Drive.</p>
+        </div>
+        <span id="drive-key-status-badge" class="badge badge-success">Loaded</span>
+      </div>
+      <form id="drive-api-key-form">
+        <div class="form-group">
+          <label class="form-label" for="drive_api_key">Google Drive API Key</label>
+          <div style="display: flex; gap: 0.5rem;">
+            <input type="text" id="drive_api_key" name="drive_api_key" class="form-input" placeholder="AIzaSy..." style="font-family: var(--font-mono);" required>
+            <button type="submit" class="btn btn-primary" id="save-drive-key-btn" style="white-space: nowrap;">
+              <span data-icon="save" data-size="16"></span> Save Key
+            </button>
+          </div>
+          <span class="form-hint">Must have Google Drive API v3 enabled in Google Cloud Console.</span>
+        </div>
+      </form>
+    </div>
+
+    <!-- Import Concurrency Setting -->
+    <div class="panel" style="margin-top: 1.25rem;">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+        <div>
+          <h3 class="section-title"><span data-icon="layers" data-size="20"></span> Import Concurrency</h3>
+          <p class="section-desc">How many Drive → Google Photos imports can run in parallel. Default: <strong>1</strong> (sequential). Increase if you have a large staging storage (15 GB ÷ avg file size).</p>
+        </div>
+        <span id="concurrency-status-badge" class="badge badge-success">1 slot</span>
+      </div>
+      <div class="form-group" style="margin-bottom: 0.75rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.55rem;">
+          <label class="form-label" style="margin-bottom: 0;" for="max_concurrent_imports">Max Concurrent Imports</label>
+          <span id="concurrency-value-chip" class="badge badge-success" style="font-size: 0.78rem;">1 slot</span>
+        </div>
+        <input type="range" id="concurrency-slider" class="form-range" min="1" max="2000" step="1" value="1"
+          style="width: 100%; accent-color: var(--accent); cursor: pointer;">
+        <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">
+          <span>1</span><span>2000</span>
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.85rem; flex-wrap: wrap;">
+          <input type="number" id="max_concurrent_imports" name="max_concurrent_imports"
+            class="form-input" min="1" max="2000" step="1" value="1"
+            style="max-width: 130px; font-family: var(--font-mono); font-weight: 600;">
+          <button type="button" id="save-concurrency-btn" class="btn btn-primary" style="white-space: nowrap;">
+            <span data-icon="save" data-size="15"></span> Save
+          </button>
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-left: auto;" id="concurrency-presets">
+            <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="1">1</button>
+            <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="5">5</button>
+            <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="10">10</button>
+            <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="50">50</button>
+            <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="100">100</button>
+            <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="500">500</button>
+            <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="2000">2000</button>
+          </div>
+        </div>
+        <span class="form-hint">Takes effect on the next queued import. Range: 1 – 2000.</span>
+      </div>
+    </div>
+
+    <!-- Danger Zone: Full Media Database Reset -->
+    <div class="panel" style="margin-top: 2rem; border: 1px solid rgba(244, 63, 94, 0.35); background: rgba(244, 63, 94, 0.03);">
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
+        <div>
+          <h3 class="section-title" style="color: var(--danger);"><span data-icon="alert-triangle" data-size="20"></span> Danger Zone: Full Media Database Reset</h3>
+          <p class="section-desc">Permanently wipe all media files, tokens, temporary queues, permanent items, and cached download links. <strong>Administrator accounts, cookie sessions, API keys, and Mobile Auth accounts will NOT be reset.</strong></p>
+        </div>
+        <span class="badge badge-danger">Destructive</span>
+      </div>
+      <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+        <button type="button" class="btn btn-danger" onclick="openResetMediaModal()" title="Permanently wipe all media file records from database">
+          <span data-icon="trash-2" data-size="16"></span> Reset All Media Files
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab 7: API Keys Management -->
+  <div id="keys-tab" class="tab-content">
+    <div class="section-head">
+      <div>
+        <h2 class="section-title"><span data-icon="key" data-size="22"></span> Developer API Keys</h2>
+        <p class="section-desc">Permanent API keys for external applications, bots, scripts, and integrations.</p>
+      </div>
+      <button id="open-add-key-modal" class="btn btn-primary btn-sm">
+        <span data-icon="plus" data-size="15"></span> Generate API Key
+      </button>
+    </div>
+
+    <!-- API Usage Documentation Pill -->
+    <div class="panel" style="margin-bottom: 1.25rem; padding: 1rem 1.25rem; border-left: 3px solid var(--accent-indigo);">
+      <div style="font-weight: 600; font-size: 0.9rem; margin-bottom: 0.35rem; color: var(--text-main);">
+        Quick API Authentication Guide:
+      </div>
+      <div style="font-size: 0.82rem; color: var(--text-muted); font-family: var(--font-mono); line-height: 1.6;">
+        <div><strong>Header:</strong> <code>X-API-Key: gpmc_live_...</code></div>
+        <div><strong>Query Param:</strong> <code>https://your-domain.com/api/media?api_key=gpmc_live_...</code></div>
+        <div><strong>Bearer:</strong> <code>Authorization: Bearer gpmc_live_...</code></div>
+      </div>
+    </div>
+
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Key Label</th>
+            <th>Key Prefix</th>
+            <th>Status</th>
+            <th>Last Used</th>
+            <th>Created</th>
+            <th>Expires</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="keys-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tab: Background Jobs -->
+  <div id="jobs-tab" class="tab-content">
+    <div class="section-head">
+      <div>
+        <h2 class="section-title"><span data-icon="cpu" data-size="22"></span> Background Jobs</h2>
+        <p class="section-desc">All background tasks — share-link generation, promotions, cleanup, cookies &amp; quota checks.</p>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="loadJobs()">
+        <span data-icon="refresh-cw" data-size="15"></span> Refresh
+      </button>
+    </div>
+    <div class="table-responsive">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Type</th>
+            <th>Status</th>
+            <th>Last Run</th>
+            <th>Next Run</th>
+            <th>Interval</th>
+            <th>Result</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="jobs-table-body"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Modal: Add Web Cookie Session -->
+<div id="add-session-modal" class="modal-backdrop">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><span data-icon="cookie" data-size="20"></span> Add Web Session</h3>
+      <button id="close-session-modal" class="modal-close-btn" aria-label="Close"><span data-icon="x" data-size="17"></span></button>
+    </div>
+    <form id="add-session-form">
+      <div class="form-group">
+        <label class="form-label" for="raw_cookies">Cookies</label>
+        <textarea id="raw_cookies" name="raw_cookies" class="form-textarea" placeholder="Paste your browser cookies here..." required></textarea>
+        <span class="form-hint">
+          Open Google Photos in your browser, copy the cookies from a logged-in session, and paste them here.
+        </span>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">
+        <span data-icon="check" data-size="16"></span> Save &amp; Verify Session
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: View Session Details -->
+<div id="view-session-modal" class="modal-backdrop">
+  <div class="modal-dialog" style="max-width: 600px;">
+    <div class="modal-header">
+      <h3><span data-icon="cookie" data-size="20"></span> Session Details</h3>
+      <button id="close-view-session-modal" class="modal-close-btn" aria-label="Close"><span data-icon="x" data-size="17"></span></button>
+    </div>
+    <div class="modal-body" style="margin: 1.25rem 0;">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 1rem;">
+        <div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Session Name</div>
+          <div id="view-sess-name" style="font-weight: 600; color: var(--text-main); margin-top: 0.25rem;"></div>
+        </div>
+        <div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Account Email</div>
+          <div id="view-sess-account" style="color: var(--text-main); margin-top: 0.25rem;"></div>
+        </div>
+        <div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Session ID</div>
+          <div id="view-sess-id" class="code-pill" style="margin-top: 0.25rem; font-size: 0.8rem;"></div>
+        </div>
+        <div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Status</div>
+          <div id="view-sess-status" style="margin-top: 0.25rem;"></div>
+        </div>
+        <div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Created</div>
+          <div id="view-sess-created" style="color: var(--text-main); margin-top: 0.25rem; font-size: 0.85rem;"></div>
+        </div>
+        <div>
+          <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600;">Last Updated</div>
+          <div id="view-sess-updated" style="color: var(--text-main); margin-top: 0.25rem; font-size: 0.85rem;"></div>
+        </div>
+      </div>
+      <div class="form-group" style="margin-bottom: 0;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.35rem;">
+          <label class="form-label" style="margin-bottom: 0;">Session Blob <span style="font-weight: 400; text-transform: none; color: var(--text-muted);">(full session saved in DB)</span></label>
+          <button id="copy-sess-blob-btn" type="button" class="btn btn-secondary btn-sm" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;">
+            <span data-icon="copy" data-size="12"></span> Copy Blob
+          </button>
+        </div>
+        <textarea id="view-sess-blob" class="form-textarea" rows="12" readonly style="font-family: var(--font-mono); font-size: 0.72rem; resize: vertical; word-break: break-word; color: var(--text-secondary);"></textarea>
+      </div>
+
+      <div style="height: 0.75rem;"></div>
+      <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center;">
+        <button id="delete-view-sess-btn" type="button" class="btn btn-danger btn-sm">
+          <span data-icon="trash-2" data-size="14"></span> Delete Session
+        </button>
+        <button id="close-view-sess-btn" type="button" class="btn btn-secondary btn-sm">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Storage Quota -->
+<div id="quota-modal" class="modal-backdrop">
+  <div class="modal-dialog" style="max-width: 520px;">
+    <div class="modal-header">
+      <h3><span data-icon="database" data-size="20"></span> Storage Quota</h3>
+      <button id="close-quota-modal" class="modal-close-btn" aria-label="Close"><span data-icon="x" data-size="17"></span></button>
+    </div>
+    <div class="modal-body" id="quota-modal-body" style="margin: 1.25rem 0;"></div>
+    <div class="modal-actions" style="display: flex; justify-content: flex-end;">
+      <button id="close-quota-btn" type="button" class="btn btn-secondary btn-sm">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Error Details -->
+<div id="error-details-modal" class="modal-backdrop">
+  <div class="modal-dialog" style="max-width: 580px; padding: 26px;">
+    <div class="modal-header" style="margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div style="width: 38px; height: 38px; border-radius: 10px; background: rgba(244, 63, 94, 0.12); color: var(--danger, #f43f5e); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          <span data-icon="alert-triangle" data-size="20"></span>
+        </div>
+        <div>
+          <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: var(--text-primary); letter-spacing: -0.01em;">Import Failure Details</h3>
+          <p style="margin: 2px 0 0; font-size: 0.78rem; color: var(--text-muted);">Rejection report from Google Photos pipeline</p>
+        </div>
+      </div>
+      <button id="close-error-modal" class="modal-close-btn" aria-label="Close"><span data-icon="x" data-size="16"></span></button>
+    </div>
+    <div class="modal-body" style="display: flex; flex-direction: column; gap: 16px;">
+      <!-- File Metadata Card -->
+      <div style="background: var(--bg-inset, #f8fafc); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;">
+        <div style="margin-bottom: 10px;">
+          <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 4px;">Target File</div>
+          <div id="error-modal-file" style="font-weight: 600; font-size: 0.92rem; color: var(--text-primary); word-break: break-word; line-height: 1.4;"></div>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding-top: 10px; border-top: 1px dashed var(--border);">
+          <div>
+            <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 2px;">Google Drive ID</div>
+            <div id="error-modal-drive-id" style="font-family: monospace; font-size: 0.82rem; font-weight: 600; color: var(--accent);"></div>
+          </div>
+          <div>
+            <div style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 2px;">Status</div>
+            <span id="error-modal-badge" class="badge badge-rose">Format Unsupported</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Error Message Box -->
+      <div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 0.74rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);">
+            <span data-icon="circle-alert" data-size="14"></span> Detailed Error Log
+          </div>
+          <button type="button" id="copy-error-btn" class="btn btn-secondary btn-sm" style="padding: 2px 8px; font-size: 0.74rem; height: 26px; display: inline-flex; align-items: center; gap: 4px;">
+            <span data-icon="copy" data-size="13"></span> Copy Log
+          </button>
+        </div>
+        <div class="error-log-box">
+          <pre id="error-modal-content" style="margin: 0; padding: 14px 16px; border-radius: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 0.82rem; line-height: 1.55; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto;"></pre>
+        </div>
+      </div>
+
+      <!-- Format Note -->
+      <div style="display: flex; align-items: flex-start; gap: 8px; padding: 10px 12px; border-radius: 8px; background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.18); font-size: 0.78rem; color: var(--text-secondary); line-height: 1.45;">
+        <span data-icon="info" data-size="16" style="color: var(--accent); flex-shrink: 0; margin-top: 1px;"></span>
+        <div>Google Photos only accepts photos and video formats (e.g. <code>.mp4</code>, <code>.mkv</code>, <code>.mov</code>, <code>.jpg</code>). Archive files such as <code>.rar</code>, <code>.zip</code>, or <code>.exe</code> are rejected by Google servers.</div>
+      </div>
+    </div>
+    <div class="modal-actions" style="margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end;">
+      <button id="close-error-btn" type="button" class="btn btn-secondary btn-sm" style="min-width: 80px;">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Add Mobile Account -->
+<div id="add-mobile-modal" class="modal-backdrop">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><span data-icon="smartphone" data-size="20"></span> Add Mobile Account</h3>
+      <button id="close-mobile-modal" class="modal-close-btn" aria-label="Close"><span data-icon="x" data-size="17"></span></button>
+    </div>
+    <form id="add-mobile-form">
+      <div class="form-group">
+        <label class="form-label" for="auth_data">AUTH_DATA</label>
+        <textarea id="auth_data" name="auth_data" class="form-textarea" placeholder="androidId=...&Token=aas_et/..." required></textarea>
+        <span class="form-hint">
+          Paste your account's AUTH_DATA string. It will be verified before saving.
+        </span>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">
+        Add Account
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Generate API Key -->
+<div id="add-key-modal" class="modal-backdrop">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><span data-icon="key" data-size="20"></span> Generate New API Key</h3>
+      <button id="close-key-modal" class="modal-close-btn" aria-label="Close"><span data-icon="x" data-size="17"></span></button>
+    </div>
+    <form id="add-key-form">
+      <div class="form-group">
+        <label class="form-label" for="key_name">Key Name / Description</label>
+        <input type="text" id="key_name" name="key_name" class="form-input" placeholder="e.g. My Website Bot, Sync Service" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="key_days">Expiration (Days)</label>
+        <input type="number" id="key_days" name="key_days" class="form-input" placeholder="Leave empty for permanent (never expires)" min="1">
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">
+        <span data-icon="check" data-size="16"></span> Generate Secret Key
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Show Generated API Key (Copy Once) -->
+<div id="show-key-modal" class="modal-backdrop">
+  <div class="modal-dialog">
+    <div class="modal-header">
+      <h3><span data-icon="check" data-size="20" style="color: var(--accent-emerald);"></span> API Key Generated</h3>
+    </div>
+    <div style="margin: 1.25rem 0;">
+      <p style="font-size: 0.875rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+        ⚠️ <strong>Important:</strong> Copy this secret API key now! For your security, it will <strong>never</strong> be shown again.
+      </p>
+      <div style="display: flex; gap: 0.5rem; align-items: center; background: rgba(0,0,0,0.4); padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color);">
+        <code id="newly-generated-key" style="word-break: break-all; color: var(--accent-emerald); font-size: 0.85rem; font-family: var(--font-mono); flex: 1;"></code>
+        <button id="copy-new-key-btn" type="button" class="btn btn-secondary btn-sm" title="Copy Key">
+          <span data-icon="copy" data-size="14"></span> Copy
+        </button>
+      </div>
+    </div>
+    <div class="modal-actions" style="display: flex; justify-content: flex-end;">
+      <button id="close-show-key-modal" type="button" class="btn btn-primary btn-sm">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Edit API Key -->
+<div id="edit-key-modal" class="modal-backdrop">
+  <div class="modal-dialog" style="max-width: 460px;">
+    <div class="modal-header">
+      <h3><span data-icon="edit" data-size="20"></span> Edit API Key</h3>
+      <button id="close-edit-key-modal" class="modal-close-btn" aria-label="Close"><span data-icon="x" data-size="17"></span></button>
+    </div>
+    <form id="edit-key-form">
+      <input type="hidden" id="edit-key-id" name="key_id">
+      
+      <div class="form-group">
+        <label class="form-label" for="edit-key-name">Key Label / Name</label>
+        <input type="text" id="edit-key-name" name="name" class="form-input" placeholder="e.g. Public Developer" required>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Key Prefix (Identifier)</label>
+        <div id="edit-key-prefix-display" class="code-pill" style="font-size: 0.88rem; width: fit-content;"></div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="edit-key-status">Status</label>
+        <select id="edit-key-status" name="is_active" class="form-select">
+          <option value="true">Active (Enabled)</option>
+          <option value="false">Disabled (Revoked)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="edit-key-expiry-mode">Expiration</label>
+        <div id="edit-key-current-expiry" style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 6px;"></div>
+        <select id="edit-key-expiry-mode" class="form-select" style="margin-bottom: 0.5rem;" onchange="handleEditKeyExpiryChange()">
+          <option value="keep">Keep Current Expiration</option>
+          <option value="permanent">Make Permanent (Never Expires)</option>
+          <option value="extend">Extend / Reset from Today</option>
+        </select>
+        <div id="edit-key-days-wrapper" style="display: none; margin-top: 6px;">
+          <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <input type="number" id="edit-key-days" name="expires_days" class="form-input" min="1" placeholder="e.g. 30">
+            <span style="font-size: 0.85rem; color: var(--text-muted); white-space: nowrap;">days from today</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
+        <button id="cancel-edit-key-btn" type="button" class="btn btn-secondary btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">
+          <span data-icon="check" data-size="15"></span> Save Changes
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Edit Background Job -->
+<div id="edit-job-modal" class="modal-backdrop">
+  <div class="modal-dialog" style="max-width: 480px;">
+    <div class="modal-header">
+      <h3><span data-icon="edit" data-size="20"></span> Edit Background Job</h3>
+      <button id="close-edit-job-modal" class="modal-close-btn" aria-label="Close"><span data-icon="x" data-size="17"></span></button>
+    </div>
+    <form id="edit-job-form">
+      <input type="hidden" id="edit-job-id" name="job_id">
+      <div class="form-group">
+        <label class="form-label">Job Type</label>
+        <div id="edit-job-type-display" class="code-pill" style="font-size: 0.9rem; margin-bottom: 0.5rem; display: inline-block;"></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="edit-job-interval-preset">Run Interval</label>
+        <select id="edit-job-interval-preset" class="form-select" style="margin-bottom: 0.5rem;">
+          <option value="custom">Custom (specify seconds below)</option>
+          <option value="20">Every 20 Seconds (20s — Pipeline default)</option>
+          <option value="60">Every 1 Minute (60s)</option>
+          <option value="300">Every 5 Minutes (300s)</option>
+          <option value="600">Every 10 Minutes (600s)</option>
+          <option value="1800">Every 30 Minutes (1800s)</option>
+          <option value="3600">Every 1 Hour (3600s)</option>
+          <option value="86400">Every 24 Hours (86400s)</option>
+        </select>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+          <input type="number" id="edit-job-interval-sec" name="run_every_sec" class="form-input" min="5" placeholder="Interval in seconds" required>
+          <span style="font-size: 0.85rem; color: var(--text-muted); white-space: nowrap;">seconds</span>
+        </div>
+        <span class="form-hint">How frequently this background task automatically repeats.</span>
+      </div>
+      <div class="form-group" style="margin-top: 1rem;">
+        <label class="form-checkbox" style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; user-select: none;">
+          <input type="checkbox" id="edit-job-trigger-now" name="trigger_now">
+          <span>Run immediately after saving (resets schedule)</span>
+        </label>
+      </div>
+      <div class="modal-actions" style="display: flex; justify-content: space-between; align-items: center; margin-top: 1.25rem;">
+        <button id="reset-edit-job-btn" type="button" class="btn btn-secondary btn-sm" title="Restore system default interval for this job">
+          <span data-icon="rotate-ccw" data-size="14"></span> Reset Default
+        </button>
+        <div style="display: flex; gap: 0.5rem;">
+          <button id="cancel-edit-job-btn" type="button" class="btn btn-secondary btn-sm">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm">
+            <span data-icon="check" data-size="15"></span> Save Changes
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Add Administrator -->
+<div id="add-admin-modal" class="modal-backdrop">
+  <div class="modal-dialog" style="max-width: 440px;">
+    <div class="modal-header">
+      <h3><span data-icon="shield-check" data-size="20"></span> Create Administrator</h3>
+      <button id="close-add-admin-modal" class="modal-close-btn" aria-label="Close"><span data-icon="x" data-size="17"></span></button>
+    </div>
+    <form id="create-admin-form">
+      <div class="form-group">
+        <label class="form-label" for="new_username">Username</label>
+        <input type="text" id="new_username" name="new_username" class="form-input" placeholder="e.g. manager" required>
+      </div>
+      <div class="form-group">
+        <label class="form-label" for="new_password">Password</label>
+        <input type="password" id="new_password" name="new_password" class="form-input" placeholder="••••••••••••" required>
+      </div>
+      <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1.25rem;">
+        <button id="cancel-add-admin-btn" type="button" class="btn btn-secondary btn-sm">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm">
+          <span data-icon="check" data-size="15"></span> Create Admin Account
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Reset All Media Database Confirmation -->
+<div id="reset-media-modal" class="modal-backdrop">
+  <div class="modal-dialog" style="max-width: 480px;">
+    <div class="modal-header">
+      <h3 style="color: var(--danger);"><span data-icon="alert-triangle" data-size="20"></span> Reset All Media Database</h3>
+      <button id="close-reset-media-modal" class="modal-close-btn" aria-label="Close"><span data-icon="x" data-size="17"></span></button>
+    </div>
+    <div style="margin-bottom: 1.25rem; font-size: 0.88rem; color: var(--text-secondary); line-height: 1.6;">
+      <p style="margin-bottom: 0.75rem; color: var(--text-primary); font-weight: 600;">
+        ⚠️ This action will permanently wipe ALL media from the local database:
+      </p>
+      <ul style="padding-left: 1.25rem; margin-bottom: 1rem; color: var(--text-secondary);">
+        <li>All <strong>Drive master index & download tokens</strong> (DriveRef)</li>
+        <li>All <strong>Temporary Queue</strong> records (TempImport)</li>
+        <li>All <strong>Permanent Library</strong> mappings (PermanentItem)</li>
+        <li>All <strong>Cached download links</strong> (DownloadCache)</li>
+      </ul>
+      <div style="background: rgba(16, 185, 129, 0.08); border-left: 3px solid var(--accent-emerald, #10b981); padding: 0.65rem 0.85rem; border-radius: var(--radius-sm, 6px); margin-bottom: 1rem;">
+        <p style="font-size: 0.84rem; color: var(--accent-emerald, #10b981); font-weight: 600; margin-bottom: 0.35rem;">
+          ✓ Guaranteed Safe (Will NEVER be reset):
+        </p>
+        <div style="font-size: 0.8rem; color: var(--text-secondary); line-height: 1.55;">
+          • Administrator accounts & credentials<br>
+          • Cookie web sessions (Google accounts)<br>
+          • Mobile Auth accounts & master tokens<br>
+          • Developer API keys & system settings
+        </div>
+      </div>
+      <div class="form-group" style="margin-top: 1rem;">
+        <label class="form-label" for="reset-media-confirm-input" style="color: var(--text-primary); font-weight: 600;">
+          To proceed, please type <code style="color: var(--danger); font-size: 0.95rem; font-weight: 700;">RESET</code> below:
+        </label>
+        <input
+          type="text"
+          id="reset-media-confirm-input"
+          class="form-input"
+          placeholder="Type RESET here..."
+          autocomplete="off"
+          style="font-family: var(--font-mono); font-weight: 700; text-transform: uppercase;"
+        >
+      </div>
+    </div>
+    <div class="modal-actions" style="display: flex; justify-content: flex-end; gap: 0.5rem;">
+      <button id="cancel-reset-media-btn" type="button" class="btn btn-secondary btn-sm">Cancel</button>
+      <button id="confirm-reset-media-btn" type="button" class="btn btn-danger btn-sm" disabled>
+        <span data-icon="trash-2" data-size="15"></span> Wipe All Media
+      </button>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="/static/js/dashboard.js?v=3.6"></script>
+<script src="/static/js/upload.js?v=2.3"></script>
+{% endblock %}

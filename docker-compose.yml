@@ -1,0 +1,15 @@
+services:
+  instant-engine:
+    build: .
+    container_name: instant-engine
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs

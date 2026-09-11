@@ -1,0 +1,214 @@
+/* ============================================================
+   30-Min Cached URLs Dedicated Page Styles
+   ============================================================ */
+
+.cached-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.cached-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cached-back-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: fit-content;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-decoration: none;
+  padding: 2px 8px 2px 4px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
+}
+
+.cached-back-link .icon { transition: transform var(--transition-fast); }
+
+.cached-back-link:hover {
+  color: var(--accent);
+  background: var(--accent-softer);
+}
+
+.cached-back-link:hover .icon { transform: translateX(-2px); }
+
+.cached-title-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.cached-icon-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  background: var(--warning-soft);
+  color: var(--warning);
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.18);
+  flex-shrink: 0;
+}
+
+.cached-title-meta {
+  min-width: 0;
+}
+
+.cached-title-meta h1 {
+  font-family: var(--font-heading);
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.cached-title-meta p {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  margin: 4px 0 0 0;
+  line-height: 1.4;
+}
+
+.cached-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---------- Stats Grid (3 cards) ---------- */
+.cached-page .stats-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+/* ---------- Table and Filters ---------- */
+.cached-filter-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.cached-search-box {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+  max-width: 420px;
+}
+
+.cached-search-box .search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  pointer-events: none;
+}
+
+.cached-search-box .form-input {
+  width: 100%;
+  padding-left: 42px;
+  height: 42px;
+  font-size: 0.88rem;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  transition: all var(--transition-fast);
+}
+
+.cached-search-box .form-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+  outline: none;
+}
+
+.cached-filter-selects {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cached-filter-selects .form-select {
+  width: auto;
+  flex: 0 0 auto;
+  height: 42px;
+  min-width: 140px;
+  padding: 0 36px 0 14px;
+  font-size: 0.86rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.cached-filter-selects .form-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+  outline: none;
+}
+
+.cached-filter-selects .form-select:hover {
+  border-color: #b9c2d4;
+}
+
+/* Action buttons in table */
+.cached-actions-cell {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.cached-btn-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .cached-header-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .cached-header-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .cached-filter-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cached-search-box {
+    max-width: none;
+  }
+  .cached-filter-selects {
+    width: 100%;
+  }
+  .cached-page .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .cached-filter-selects .form-select {
+    flex: 1;
+    min-width: 120px;
+  }
+}

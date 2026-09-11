@@ -1,0 +1,120 @@
+# ==============================================================================
+# Git Ignore Configuration - Instant Engine (Full System)
+# ==============================================================================
+
+# --- Environment & Sensitive Credentials ---
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+!.env.example
+
+# --- Python Bytecode & Runtime Artifacts ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# --- Virtual Environments ---
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# --- SQLite Database Storage ---
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
+*.sqlite3
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+!data/.gitkeep
+
+# --- Centralized Application Logs ---
+logs/*.log
+logs/*.log.*
+!logs/.gitkeep
+
+# --- Testing, Coverage & Benchmarks ---
+.pytest_cache/
+.benchmarks/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# --- Temporary & Scratch Files ---
+scratch/
+old/
+*.bak
+*~
+*.swp
+*.swo
+
+# --- Operating System Noise ---
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# --- IDEs & Code Editors ---
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# ==============================================================================
+# Photos Engine Submodule / Package Filters
+# Only the runtime Python package (photos_engine/photos_engine/) and precompiled
+# native libraries (lib/) are needed. All standalone docs, tests, and tooling are ignored.
+# ==============================================================================
+photos_engine/.git/
+photos_engine/.github/
+photos_engine/.gitignore
+photos_engine/.gitattributes
+photos_engine/.benchmarks/
+photos_engine/.cache/
+photos_engine/.venv/
+photos_engine/docs/
+photos_engine/site/
+photos_engine/examples/
+photos_engine/tests/
+photos_engine/test.py
+photos_engine/save.py
+photos_engine/build_engine.py
+photos_engine/mkdocs.yml
+photos_engine/zensical.toml
+photos_engine/photos_engine.egg-info/
+photos_engine/core/
+photos_engine/go.mod
+photos_engine/go.sum
+photos_engine/uv.lock
+
+# Ensure runtime native binaries in photos_engine/lib are always tracked
+!photos_engine/photos_engine/lib/
+!photos_engine/photos_engine/lib/*

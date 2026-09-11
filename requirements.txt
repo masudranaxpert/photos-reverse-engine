@@ -1,0 +1,25 @@
+# ==============================================================================
+# Python Dependencies - Instant Engine
+# ==============================================================================
+
+# Web Framework, ASGI Server & Templates
+fastapi>=0.141.1
+uvicorn[standard]>=0.30.0
+jinja2>=3.1.6
+python-dotenv>=1.0.0
+
+# Database & Async Engine (SQLite WAL)
+sqlalchemy>=2.0.52
+aiosqlite>=0.22.1
+
+# Schema Validation & Models
+pydantic>=2.13.5
+
+# Centralized Logging Engine
+loguru>=0.7.3
+
+# Background Task Scheduler (APScheduler)
+apscheduler>=3.11.3
+
+# TLS & HTTP/2 Fingerprinted Transport (Google Photos Engine dependency)
+httpcloak>=1.7.2

@@ -1,0 +1,151 @@
+"""
+Google Drive v3 API service for file metadata pre-fetching.
+Fetches exact filename, file_size, and accessibility before importing to Google Photos.
+"""
+import logging
+from dataclasses import dataclass
+from typing import Optional
+
+import httpcloak
+from sqlalchemy import select
+
+from app.database import get_db
+from app.models import SystemSetting
+
+logger = logging.getLogger("photos_engine.drive_api")
+
+
+@dataclass
+class DriveFileMetadata:
+    drive_id: str
+    filename: Optional[str] = None
+    file_size: Optional[int] = None
+    mime_type: Optional[str] = None
+    status: str = "ok"  # 'ok' | 'not_found' | 'error'
+    error_message: Optional[str] = None
+
+
+async def get_drive_api_key() -> Optional[str]:
+    """Retrieve Google Drive API key strictly from system_settings table."""
+    try:
+        async with get_db() as db:
+            stmt = select(SystemSetting).where(SystemSetting.key == "google_drive_api_key")
+            res = await db.execute(stmt)
+            setting = res.scalar_one_or_none()
+            if setting and setting.value and setting.value.strip():
+                return setting.value.strip()
+    except Exception as exc:
+        logger.error("[drive_api] Failed to read API key from DB: %s", exc)
+
+    return None
+
+
+async def set_drive_api_key(api_key: str) -> None:
+    """Save updated Google Drive API key to system_settings."""
+    clean_key = api_key.strip()
+    async with get_db() as db:
+        stmt = select(SystemSetting).where(SystemSetting.key == "google_drive_api_key")
+        res = await db.execute(stmt)
+        setting = res.scalar_one_or_none()
+        if setting:
+            setting.value = clean_key
+        else:
+            setting = SystemSetting(
+                key="google_drive_api_key",
+                value=clean_key,
+                description="Google Drive v3 API Key for file metadata pre-fetching",
+            )
+            db.add(setting)
+
+
+async def get_drive_file_metadata(drive_id: str) -> DriveFileMetadata:
+    """
+    Fetch file metadata (name, size, mimeType) directly from Google Drive v3 API.
+    Returns status='not_found' if file does not exist, is in trash, or inaccessible.
+    Returns status='error' if API key is not configured or network error occurs.
+    """
+    clean_id = drive_id.strip()
+    api_key = await get_drive_api_key()
+    if not api_key:
+        logger.warning("[drive_api] Drive API key is not set in database.")
+        return DriveFileMetadata(
+            drive_id=clean_id,
+            status="error",
+            error_message="Google Drive API key is not configured in Admin Settings. Please configure it first.",
+        )
+
+    url = f"https://www.googleapis.com/drive/v3/files/{clean_id}"
+    params = {
+        "fields": "id,name,size,mimeType,trashed",
+        "key": api_key,
+        "supportsAllDrives": "true",
+    }
+
+    try:
+        with httpcloak.Session(preset="chrome-latest", timeout=12) as session:
+            resp = await session.get_async(url, params=params)
+
+            if resp.status_code == 404:
+                logger.warning("[drive_api] File %s not found (HTTP 404)", clean_id)
+                return DriveFileMetadata(
+                    drive_id=clean_id,
+                    status="not_found",
+                    error_message="File not found or inaccessible in Google Drive.",
+                )
+
+            if not resp.ok:
+                try:
+                    err_body = resp.json()
+                except Exception:
+                    err_body = {}
+                err_msg = err_body.get("error", {}).get("message", resp.text[:120])
+                logger.warning("[drive_api] Drive API HTTP %d for %s: %s", resp.status_code, clean_id, err_msg)
+
+                # Check if error message explicitly mentions not found
+                if "notFound" in str(err_body) or resp.status_code in (400, 403, 404):
+                    return DriveFileMetadata(
+                        drive_id=clean_id,
+                        status="not_found",
+                        error_message=f"Google Drive file inaccessible or not found: {err_msg}",
+                    )
+                return DriveFileMetadata(
+                    drive_id=clean_id,
+                    status="error",
+                    error_message=f"Drive API error ({resp.status_code}): {err_msg}",
+                )
+
+            data = resp.json()
+
+            if data.get("trashed"):
+                logger.warning("[drive_api] File %s is trashed", clean_id)
+                return DriveFileMetadata(
+                    drive_id=clean_id,
+                    status="not_found",
+                    error_message="File is in Google Drive trash.",
+                )
+
+            raw_size = data.get("size")
+            file_size = int(raw_size) if raw_size is not None else None
+            filename = data.get("name") or None
+            mime_type = data.get("mimeType") or "video/*"
+
+            logger.info(
+                "[drive_api] Fetched metadata for %s: name='%s' size=%s mime=%s",
+                clean_id, filename, file_size, mime_type,
+            )
+
+            return DriveFileMetadata(
+                drive_id=clean_id,
+                filename=filename,
+                file_size=file_size,
+                mime_type=mime_type,
+                status="ok",
+            )
+
+    except Exception as exc:
+        logger.error("[drive_api] Request failed for %s: %s", clean_id, exc)
+        return DriveFileMetadata(
+            drive_id=clean_id,
+            status="error",
+            error_message=f"Network error querying Google Drive API: {exc}",
+        )

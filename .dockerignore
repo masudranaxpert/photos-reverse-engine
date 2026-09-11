@@ -1,0 +1,70 @@
+# ==============================================================================
+# Docker Build Context Ignore - Instant Engine
+# ==============================================================================
+
+# Version Control
+.git
+.gitignore
+
+# Virtual Environments & Python Cache
+.venv
+venv
+env
+ENV
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Testing & Coverage
+.pytest_cache
+.benchmarks
+.coverage
+htmlcov
+
+# Local Database & Logs (persistent volumes used instead)
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.db-journal
+logs/*.log
+logs/*.log.*
+
+# Development & Scratch Scripts
+scratch
+old
+
+# Local environment secrets (provided via docker-compose env_file or environment)
+.env
+.env.local
+.env.*.local
+
+# Operating System & IDEs
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea
+.vscode
+
+# Photos Engine Standalone Development & Test Baggage
+photos_engine/.git
+photos_engine/.github
+photos_engine/.gitignore
+photos_engine/.gitattributes
+photos_engine/.benchmarks
+photos_engine/.cache
+photos_engine/.venv
+photos_engine/docs
+photos_engine/site
+photos_engine/examples
+photos_engine/tests
+photos_engine/test.py
+photos_engine/save.py
+photos_engine/build_engine.py
+photos_engine/mkdocs.yml
+photos_engine/zensical.toml
+photos_engine/photos_engine.egg-info
+photos_engine/core
+photos_engine/go.mod
+photos_engine/go.sum
+photos_engine/uv.lock
