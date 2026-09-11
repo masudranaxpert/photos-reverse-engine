@@ -1,5 +1,6 @@
 import logging
 import sys
+import time
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -17,20 +18,44 @@ from app.models import WebSession
 
 logger = logging.getLogger(__name__)
 
+# 30-second TTL cache for the default active-session lookup.
+# Stores (session_object, expire_timestamp); None means no active session.
+_session_cache: tuple = (None, 0.0)
+_SESSION_TTL = 30  # seconds
+
+
+def invalidate_session_cache() -> None:
+    """Force next get_active_session_row() to bypass cache."""
+    global _session_cache
+    _session_cache = (None, 0.0)
+
 
 async def get_active_session_row(session_id: Optional[str] = None, allow_inactive: bool = False) -> Optional[WebSession]:
-    """Fetch session record from SQLite web_sessions table via SQLAlchemy ORM."""
-    async with get_db() as db:
-        if session_id:
-            stmt = select(WebSession).where(WebSession.session_id == session_id.strip())
-            if not allow_inactive:
+    """Fetch session record from SQLite; default path uses a 30s TTL in-memory cache."""
+    global _session_cache
+
+    # Specific lookups and inactive-allowed lookups always hit the DB.
+    if session_id or allow_inactive:
+        async with get_db(write=False) as db:
+            stmt = select(WebSession).where(WebSession.session_id == session_id.strip()) if session_id else \
+                select(WebSession).where(WebSession.is_active.is_(True)).order_by(WebSession.id.desc()).limit(1)
+            if session_id and not allow_inactive:
                 stmt = stmt.where(WebSession.is_active.is_(True))
             res = await db.execute(stmt)
             return res.scalar_one_or_none()
 
+    # Default path: latest active session with cache.
+    cached_row, expires_at = _session_cache
+    if time.monotonic() < expires_at:
+        return cached_row
+
+    async with get_db(write=False) as db:
         stmt = select(WebSession).where(WebSession.is_active.is_(True)).order_by(WebSession.id.desc()).limit(1)
         res = await db.execute(stmt)
-        return res.scalar_one_or_none()
+        row = res.scalar_one_or_none()
+
+    _session_cache = (row, time.monotonic() + _SESSION_TTL)
+    return row
 
 
 async def get_web_client(session_id: Optional[str] = None, allow_inactive: bool = False) -> Tuple[NativeWebClient, str]:
@@ -67,6 +92,7 @@ async def get_web_client(session_id: Optional[str] = None, allow_inactive: bool 
                     .where(WebSession.session_id == target_session_id)
                     .values(is_active=False)
                 )
+            invalidate_session_cache()
             from app.services.notice_service import record_notice
             await record_notice(
                 title="Instant Session Expired",
@@ -95,6 +121,8 @@ async def sync_session_blob(session_id: str, client: NativeWebClient) -> None:
                     .where(WebSession.session_id == session_id)
                     .values(session_blob=blob, is_active=True)
                 )
+            # Blob updated — invalidate cache so next read picks up fresh state.
+            invalidate_session_cache()
             logger.debug("Synced session blob for '%s'.", session_id)
     except Exception as exc:
         logger.warning("Failed to sync session blob for '%s': %s", session_id, exc)

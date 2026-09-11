@@ -69,6 +69,8 @@ async def run_cookies_check_logic() -> dict:
                         .where(WebSession.session_id == sess.session_id)
                         .values(is_active=False)
                     )
+                from app.services.web_service import invalidate_session_cache
+                invalidate_session_cache()
                 from app.services.notice_service import record_notice
                 await record_notice(
                     title="Instant Session Expired",
@@ -295,12 +297,13 @@ async def mark_cookies_valid_and_resume() -> int:
 
 
 async def _get_import_concurrency() -> int:
-    """Read max_concurrent_imports from settings, defaulting to 1."""
+    """Read max_concurrent_imports from settings, clamped to [1, 150]."""
     try:
         async with get_db(write=False) as db:
             row = await db.get(SystemSetting, "max_concurrent_imports")
             if row:
-                return max(1, int(row.value))
+                # Hard ceiling: 150 — beyond this Google starts 429-ing.
+                return max(1, min(150, int(row.value)))
     except Exception:
         pass
     return 1
@@ -390,12 +393,14 @@ async def _execute_drive_import_async(
             client, session_id = await get_web_client()
 
             try:
-                quota = client.get_storage_quota()
+                # Quota check is a sync blocking call — offload to executor.
+                loop = asyncio.get_event_loop()
+                quota = await loop.run_in_executor(None, client.get_storage_quota)
                 available_bytes = quota.total_bytes - quota.used_bytes
                 needed_bytes = file_size or (2 * 1024 * 1024 * 1024)
                 if available_bytes < needed_bytes:
-                    logger.info("[drive_import] Staging storage low (%d MB free, need %d MB). Sweeping pipeline first...", available_bytes // (1024 * 1024), needed_bytes // (1024 * 1024))
-                    await run_pipeline_sweep_logic()
+                    logger.info("[drive_import] Staging storage low (%d MB free, need %d MB). Triggering sweep...", available_bytes // (1024 * 1024), needed_bytes // (1024 * 1024))
+                    await trigger_pipeline_sweep()
             except Exception as q_err:
                 logger.debug("[drive_import] Pre-import quota check: %s", q_err)
 
@@ -511,9 +516,10 @@ async def _execute_drive_import_async(
 
         if media_key_out:
             try:
-                await run_pipeline_sweep_logic()
+                # Decouple: schedule a sweep run via scheduler, not a direct recursive call.
+                await trigger_pipeline_sweep()
             except Exception as sw_err:
-                logger.warning("[drive_import] Post-import sweep warning: %s", sw_err)
+                logger.warning("[drive_import] Post-import sweep trigger warning: %s", sw_err)
 
         return True
     finally:
