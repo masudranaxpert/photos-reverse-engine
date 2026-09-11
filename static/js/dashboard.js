@@ -1115,7 +1115,7 @@ function setupConcurrencySetting() {
   const statusBadge = document.getElementById("concurrency-status-badge");
   if (!btn || !input) return;
 
-  const clamp = (v) => Math.min(2000, Math.max(1, parseInt(v, 10) || 1));
+  const clamp = (v) => Math.min(150, Math.max(1, parseInt(v, 10) || 1));
   const syncUI = (value) => {
     const v = clamp(value);
     input.value = v;
@@ -1137,8 +1137,8 @@ function setupConcurrencySetting() {
 
   btn.addEventListener("click", async () => {
     const value = clamp(input.value);
-    if (value < 1 || value > 2000) {
-      Toast.show("Value must be between 1 and 2000", "error");
+    if (value < 1 || value > 150) {
+      Toast.show("Value must be between 1 and 150", "error");
       return;
     }
     const reset = UI.setBusy(btn, "Saving...");

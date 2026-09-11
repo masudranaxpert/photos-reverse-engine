@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 import sys
@@ -33,6 +34,10 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize DB, purge expired cache, start APScheduler background manager."""
+    # Bump thread pool to handle concurrent blocking calls (client.close, quota check, etc.)
+    loop = asyncio.get_event_loop()
+    loop.set_default_executor(ThreadPoolExecutor(max_workers=64))
+
     logger.info("Initializing SQLite database with WAL mode...")
     await init_db()
     cleaned = await cleanup_expired_cache()

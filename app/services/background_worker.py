@@ -231,13 +231,13 @@ _active_import_ref_ids: set[int] = set()
 
 
 async def auto_requeue_error_imports(force: bool = False) -> int:
-    """Requeue retryable error imports."""
+    """Requeue retryable error imports, capped at 200 per call."""
     global _web_cookies_ok
     if not _web_cookies_ok and not force:
         logger.debug("[auto_requeue] Web cookies invalid — skipping auto-requeue until cookies restored.")
         return 0
 
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = (
             select(DriveRef)
             .outerjoin(PermanentItem, PermanentItem.drive_ref_id == DriveRef.id)
@@ -246,31 +246,37 @@ async def auto_requeue_error_imports(force: bool = False) -> int:
                 or_(
                     DriveRef.file_status == "error",
                     and_(
-                        DriveRef.file_status.notin_(["unsupported", "not_found"]),
+                        # Exclude terminal and in-flight statuses.
+                        DriveRef.file_status.notin_(["unsupported", "not_found", "importing", "ok"]),
                         PermanentItem.id.is_(None),
                         TempImport.id.is_(None),
                     ),
                 )
             )
+            .limit(200)
         )
         res = await db.execute(stmt)
         error_refs = res.scalars().all()
         if not error_refs:
             return 0
 
-        requeued_items = []
+    requeued_items = []
+    async with get_db() as db:
         for r in error_refs:
             if r.id in _active_import_ref_ids:
                 continue
-            r.file_status = "queued"
-            r.error_message = None
+            await db.execute(
+                update(DriveRef)
+                .where(DriveRef.id == r.id)
+                .values(file_status="queued", error_message=None)
+            )
             requeued_items.append({
                 "id": r.id,
                 "drive_id": r.drive_id,
                 "file_size": r.file_size,
                 "filename": r.filename,
             })
-        await db.commit()
+        # Single commit for all requeue updates.
 
     for item in requeued_items:
         await queue_drive_import(
@@ -332,6 +338,11 @@ async def queue_drive_import(
         logger.debug("[drive_import] Ref ID %d already active — skipping duplicate queue.", drive_ref_id)
         return
     _active_import_ref_ids.add(drive_ref_id)
+    # Mark as in-flight so sweep doesn't pick it up again.
+    async with get_db() as db:
+        await db.execute(
+            update(DriveRef).where(DriveRef.id == drive_ref_id).values(file_status="importing")
+        )
     asyncio.create_task(
         _execute_drive_import_async(drive_ref_id, drive_id, mime_type, file_size, filename)
     )
@@ -417,10 +428,11 @@ async def _execute_drive_import_async(
                 if any(k in internal_msg.lower() for k in ("quota", "storage", "full", "space", "limit")):
                     needed_bytes = file_size or (500 * 1024 * 1024)
                     logger.warning(
-                        "[drive_import] Quota limit encountered for drive_id=%s (size=%s). Sweeping pipeline...",
+                        "[drive_import] Quota limit encountered for drive_id=%s (size=%s). Waiting for sweep...",
                         drive_id, file_size,
                     )
-                    await run_pipeline_sweep_logic()
+                    # wait=True: block until sweep finishes so space is actually freed before retry.
+                    await run_pipeline_sweep_logic(wait=True)
                     try:
                         import_res = await client.import_from_drive_async(
                             drive_file_id=drive_id,
@@ -512,7 +524,8 @@ async def _execute_drive_import_async(
             return False
         finally:
             if client:
-                client.close()
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, client.close)
 
         if media_key_out:
             try:
@@ -534,9 +547,9 @@ async def enqueue_promote_job() -> int:
     return 0
 
 
-async def run_pipeline_sweep_logic() -> dict:
+async def run_pipeline_sweep_logic(wait: bool = False) -> dict:
     """Sweep queued drive imports, generate share links, and promote ready items with single-flight lock."""
-    if _pipeline_sweep_lock.locked():
+    if not wait and _pipeline_sweep_lock.locked():
         logger.debug("[pipeline_sweep] Sweep already in progress — skipping concurrent execution.")
         return {"status": "skipped", "reason": "sweep_already_running"}
 
@@ -548,7 +561,11 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
     """Internal implementation for pipeline sweep."""
     async with get_db(write=False) as db:
         queued_refs = (await db.execute(
-            select(DriveRef).where(DriveRef.file_status == "queued").limit(5)
+            # Feed up to semaphore capacity; skip already in-flight rows (status=importing).
+            select(DriveRef)
+            .where(DriveRef.file_status == "queued")
+            .order_by(DriveRef.id.asc())
+            .limit(_import_sem_capacity)
         )).scalars().all()
 
     for qref in queued_refs:
@@ -589,7 +606,8 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
             logger.error("[sweep/share_link] Client session error: %s", exc)
         finally:
             if client:
-                client.close()
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, client.close)
 
     now = _utc_now()
     async with get_db(write=False) as db:
@@ -658,7 +676,8 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                                     await web_client.delete_permanently_async(item.dedup_key)
                                 logger.info("[sweep/promote] Cleaned up temporary item media_key=%s (dedup=%s) from web account", item.media_key, item.dedup_key)
                             finally:
-                                web_client.close()
+                                loop = asyncio.get_event_loop()
+                                await loop.run_in_executor(None, web_client.close)
                         except Exception as exc:
                             logger.warning("[sweep/promote] Non-fatal temp cleanup warning: %s", exc)
 

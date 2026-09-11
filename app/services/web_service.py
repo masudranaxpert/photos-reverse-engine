@@ -23,6 +23,10 @@ logger = logging.getLogger(__name__)
 _session_cache: tuple = (None, 0.0)
 _SESSION_TTL = 30  # seconds
 
+# Debounce blob sync: same session written at most once per interval.
+_last_blob_sync: dict[str, float] = {}
+_BLOB_SYNC_INTERVAL = 60  # seconds
+
 
 def invalidate_session_cache() -> None:
     """Force next get_active_session_row() to bypass cache."""
@@ -110,8 +114,17 @@ async def get_web_client(session_id: Optional[str] = None, allow_inactive: bool 
         )
 
 
-async def sync_session_blob(session_id: str, client: NativeWebClient) -> None:
-    """Persist rotated cookies & TLS tickets from live client back to the web_sessions table."""
+async def sync_session_blob(session_id: str, client: NativeWebClient, force: bool = False) -> None:
+    """Persist rotated cookies & TLS tickets from live client back to the web_sessions table.
+
+    Debounced to once per _BLOB_SYNC_INTERVAL per session_id to avoid 150
+    concurrent tasks all writing the same row. Use force=True to bypass.
+    """
+    now = time.monotonic()
+    if not force and now - _last_blob_sync.get(session_id, 0.0) < _BLOB_SYNC_INTERVAL:
+        return  # Already synced recently; skip.
+    _last_blob_sync[session_id] = now
+
     try:
         blob = client.export_session_blob()
         if blob and len(blob) > 0:
@@ -121,8 +134,7 @@ async def sync_session_blob(session_id: str, client: NativeWebClient) -> None:
                     .where(WebSession.session_id == session_id)
                     .values(session_blob=blob, is_active=True)
                 )
-            # Blob updated — invalidate cache so next read picks up fresh state.
-            invalidate_session_cache()
+            # Blob-only update — is_active unchanged, no need to invalidate session cache.
             logger.debug("Synced session blob for '%s'.", session_id)
     except Exception as exc:
         logger.warning("Failed to sync session blob for '%s': %s", session_id, exc)
