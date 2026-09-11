@@ -275,7 +275,7 @@
           </div>
           {% endif %}
 
-          {% if is_permanent %}
+          {% if is_permanent and not is_ios %}
           <!-- Inline Iframe Player Container -->
           <div id="playerWrapper" style="display: none; width: 100%; margin: 1.25rem 0; border-radius: 10px; overflow: hidden; background: #000; aspect-ratio: 16/9; box-shadow: 0 8px 24px rgba(0,0,0,0.25);">
             <iframe id="playerIframe" style="width: 100%; height: 100%; border: 0; display: block;" allowfullscreen allow="autoplay; fullscreen; picture-in-picture"></iframe>
@@ -294,7 +294,7 @@
             </svg>
             <span class="tx-bold">Download Here</span>
           </a>
-          {% if is_permanent %}
+          {% if is_permanent and not is_ios %}
           <div id="watchBtnContainer" style="margin-top: 0.9rem; {% if not has_stream_cache %}display: none;{% endif %}">
             <button id="watchBtn" type="button" class="btn btn-watch" onclick="toggleWatchVideo()">
               <svg id="watchBtnIcon" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -430,11 +430,17 @@
     }
   }
 
-  // ── Auto-reveal Watch Video button once background stream cache is ready ──
+  // ── Auto-reveal Watch Video button once background stream cache is ready (non-iOS) ──
   const isPermanent = {{ 'true' if is_permanent else 'false' }};
   const hasStreamCache = {{ 'true' if has_stream_cache else 'false' }};
+  const isIOS = {{ 'true' if is_ios else 'false' }} || /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-  if (isPermanent && !hasStreamCache) {
+  if (isIOS) {
+    const watchBtn = document.getElementById('watchBtnContainer');
+    if (watchBtn) watchBtn.style.display = 'none';
+    const playerWrap = document.getElementById('playerWrapper');
+    if (playerWrap) playerWrap.style.display = 'none';
+  } else if (isPermanent && !hasStreamCache) {
     let checks = 0;
     const checkTimer = setInterval(async () => {
       checks++;

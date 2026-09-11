@@ -220,6 +220,10 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
         if importer_key and importer_key.is_active:
             brand_name = importer_key.name
 
+    # iOS detection: iPhone/iPad/iPod WebKit cannot play dual DASH stream
+    ua = request.headers.get("user-agent", "")
+    is_ios = any(dev in ua for dev in ("iPhone", "iPad", "iPod")) or ("Macintosh" in ua and "Mobile" in ua)
+
     context = {
         "token": token,
         "status": "processing",
@@ -229,6 +233,7 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
         "brand_name": brand_name,
         "is_permanent": False,
         "has_stream_cache": False,
+        "is_ios": is_ios,
     }
 
     if perm:
