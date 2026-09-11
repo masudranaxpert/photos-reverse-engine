@@ -99,6 +99,27 @@ def handle_create_key(args):
     asyncio.run(create_api_key_entry(name, args.days))
 
 
+def handle_makemigrations(args):
+    """Generate autodetected migration revision via Alembic."""
+    import subprocess
+    message = args.message or "auto migration"
+    cmd = [sys.executable, "-m", "alembic", "revision", "--autogenerate", "-m", message]
+    print(f"[*] Running: {' '.join(cmd)}")
+    res = subprocess.run(cmd, cwd=str(BASE_DIR))
+    if res.returncode != 0:
+        sys.exit(res.returncode)
+
+
+def handle_migrate(args):
+    """Apply database migrations up to head via Alembic."""
+    import subprocess
+    cmd = [sys.executable, "-m", "alembic", "upgrade", "head"]
+    print(f"[*] Running: {' '.join(cmd)}")
+    res = subprocess.run(cmd, cwd=str(BASE_DIR))
+    if res.returncode != 0:
+        sys.exit(res.returncode)
+
+
 def handle_runserver(args):
     """Run uvicorn server for FastAPI application with Loguru."""
     from app.logging_config import setup_logging, logger
@@ -135,6 +156,22 @@ def main():
     # Command: init-db
     init_db_parser = subparsers.add_parser("init-db", help="Initialize database schema")
     init_db_parser.set_defaults(func=handle_init_db)
+
+    # Command: makemigrations (aliases: make-migrations)
+    make_migrations_parser = subparsers.add_parser(
+        "makemigrations",
+        aliases=["make-migrations"],
+        help="Generate a new Alembic migration revision",
+    )
+    make_migrations_parser.add_argument("-m", "--message", default="auto migration", help="Migration message/description")
+    make_migrations_parser.set_defaults(func=handle_makemigrations)
+
+    # Command: migrate
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Run pending Alembic database migrations",
+    )
+    migrate_parser.set_defaults(func=handle_migrate)
 
     # Command: runserver
     runserver_parser = subparsers.add_parser("runserver", help="Start the FastAPI development server")

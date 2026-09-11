@@ -237,6 +237,7 @@ function renderMediaTableHeader(stage) {
         <th>Media Key</th>
         <th>Account</th>
         <th>Download Link</th>
+        <th>Visitors</th>
         <th>Promoted</th>
         <th>Actions</th>
       </tr>`;
@@ -247,6 +248,7 @@ function renderMediaTableHeader(stage) {
         <th>Media Key</th>
         <th>Dedup Key</th>
         <th>Status</th>
+        <th>Visitors</th>
         <th>Share Link</th>
         <th>Imported</th>
         <th>Actions</th>
@@ -258,6 +260,7 @@ function renderMediaTableHeader(stage) {
         <th>Drive ID</th>
         <th>Stage</th>
         <th>Download Link</th>
+        <th>Visitors</th>
         <th>Date</th>
         <th>Actions</th>
       </tr>`;
@@ -273,7 +276,7 @@ async function loadMediaFiles(page = 1) {
   if (!tbody) return;
 
   renderMediaTableHeader(currentSource);
-  tbody.innerHTML = UI.stateRow(6, "loading", "Loading media items...");
+  tbody.innerHTML = UI.stateRow(7, "loading", "Loading media items...");
 
   try {
     const url = `/api/media?page=${page}&page_size=10&search=${encodeURIComponent(currentSearch)}&source=${encodeURIComponent(currentSource)}`;
@@ -292,7 +295,7 @@ async function loadMediaFiles(page = 1) {
 
       tbody.innerHTML = `
         <tr>
-          <td colspan="6">
+          <td colspan="7">
             ${UI.emptyStateHTML("folder", emptyMsg, emptySub)}
           </td>
         </tr>`;
@@ -313,9 +316,11 @@ async function loadMediaFiles(page = 1) {
           ${icon("alert-triangle", 15) || icon("circle-alert", 15)}
         </button>` : "";
 
-        const keyTag = item.api_key_name
-          ? ` • <span title="Imported via API Key: ${UI.escapeHtml(item.api_key_name)}" style="color:var(--accent); font-weight:600;">🔑 ${UI.escapeHtml(item.api_key_name)}</span>`
-          : "";
+      const keyTag = item.api_key_name
+        ? ` • <span title="Imported via API Key: ${UI.escapeHtml(item.api_key_name)}" style="color:var(--accent); font-weight:600;">🔑 ${UI.escapeHtml(item.api_key_name)}</span>`
+        : "";
+
+      const visitorsBadge = `<span class="badge badge-neutral" style="font-weight:600; font-size:0.75rem;">👁️ ${item.visitor_count || 0}</span>`;
 
       // Stage-specific row rendering: Permanent
       if (currentSource === "permanent") {
@@ -336,6 +341,7 @@ async function loadMediaFiles(page = 1) {
             <td data-label="Download Link">
               ${fullDlUrl ? UI.codePill(fullDlUrl, "Download Link", 12) : "—"}
             </td>
+            <td data-label="Visitors">${visitorsBadge}</td>
             <td data-label="Promoted">${UI.formatTableDate(item.created_at)}</td>
             <td data-label="Actions" class="table-actions-cell">
               <div class="table-actions">
@@ -365,6 +371,7 @@ async function loadMediaFiles(page = 1) {
             <td data-label="Media Key">${UI.codePill(item.media_key, "Media Key", 9)}</td>
             <td data-label="Dedup Key">${UI.codePill(item.dedup_key, "Dedup Key", 8)}</td>
             <td data-label="Status">${UI.badge("In Web Queue", "amber")}</td>
+            <td data-label="Visitors">${visitorsBadge}</td>
             <td data-label="Share Link">
               ${item.share_url ? UI.codePill(item.share_url, "Share URL", 11) : `<span class="text-muted" style="font-size:0.78rem">Pending Worker…</span>`}
             </td>
@@ -398,6 +405,7 @@ async function loadMediaFiles(page = 1) {
           <td data-label="Download Link">
             ${fullDlUrl ? UI.codePill(fullDlUrl, "Download Link", 12) : "—"}
           </td>
+          <td data-label="Visitors">${visitorsBadge}</td>
           <td data-label="Date">${UI.formatTableDate(item.created_at)}</td>
           <td data-label="Actions" class="table-actions-cell">
             <div class="table-actions">
@@ -423,7 +431,7 @@ async function loadMediaFiles(page = 1) {
 
     UI.renderPagination(paginationControls, res, loadMediaFiles);
   } catch (err) {
-    tbody.innerHTML = UI.stateRow(6, "error", `Failed to load media files: ${err.message}`);
+    tbody.innerHTML = UI.stateRow(7, "error", `Failed to load media files: ${err.message}`);
   }
 }
 

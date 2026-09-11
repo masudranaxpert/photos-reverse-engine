@@ -151,12 +151,10 @@ class UploadResponse(BaseModel):
 
 class DownloadTokenResponse(BaseModel):
     token: str
-    drive_id: str
     status: str = Field(..., description="processing | ready | not_found")
     download_url: Optional[str] = None
     filename: Optional[str] = None
     file_size: Optional[int] = None
-    share_url: Optional[str] = None
     is_permanent: Optional[bool] = False
     has_stream_cache: Optional[bool] = False
 

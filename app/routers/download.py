@@ -135,6 +135,28 @@ async def _get_download_url(media_key: str, source: str) -> str | None:
     return None
 
 
+async def _record_unique_visit(request: Request, response: Response, drive_ref_id: int, token: str) -> None:
+    """Record a visitor view atomically if no 24-hour deduplication cookie is present."""
+    cookie_key = f"viewed_{token}"
+    if not request.cookies.get(cookie_key):
+        try:
+            async with get_db() as db:
+                await db.execute(
+                    update(DriveRef)
+                    .where(DriveRef.id == drive_ref_id)
+                    .values(visitor_count=DriveRef.visitor_count + 1)
+                )
+            response.set_cookie(
+                key=cookie_key,
+                value="1",
+                max_age=86400,
+                httponly=True,
+                samesite="lax",
+            )
+        except Exception as exc:
+            logger.warning("[download] Failed to update visitor count for %s: %s", token, exc)
+
+
 @router.get("/api/download/{token}", response_model=DownloadTokenResponse)
 async def get_download_info(token: str):
     """JSON status for a token: returns download_url when ready."""
@@ -148,7 +170,6 @@ async def get_download_info(token: str):
         has_stream_cache = await is_stream_cached(perm.media_key)
         return DownloadTokenResponse(
             token=token,
-            drive_id=drive_ref.drive_id,
             status="ready",
             download_url=download_url,
             filename=drive_ref.filename,
@@ -161,12 +182,10 @@ async def get_download_info(token: str):
         download_url = await _get_download_url(temp.media_key, "temp")
         return DownloadTokenResponse(
             token=token,
-            drive_id=drive_ref.drive_id,
             status="ready" if download_url else "processing",
             download_url=download_url,
             filename=drive_ref.filename,
             file_size=drive_ref.file_size,
-            share_url=temp.share_url,
             is_permanent=False,
             has_stream_cache=False,
         )
@@ -174,7 +193,6 @@ async def get_download_info(token: str):
     # drive_ref exists but no temp or permanent (edge case: mid-import)
     return DownloadTokenResponse(
         token=token,
-        drive_id=drive_ref.drive_id,
         status="processing",
         filename=drive_ref.filename,
         file_size=drive_ref.file_size,
@@ -204,12 +222,10 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
 
     context = {
         "token": token,
-        "drive_id": drive_ref.drive_id,
         "status": "processing",
         "download_url": None,
         "filename": drive_ref.filename,
         "file_size": drive_ref.file_size,
-        "share_url": None,
         "brand_name": brand_name,
         "is_permanent": False,
         "has_stream_cache": False,
@@ -241,12 +257,13 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
         context.update({
             "status": "ready" if download_url else "processing",
             "download_url": download_url,
-            "share_url": temp.share_url,
             "is_permanent": False,
             "has_stream_cache": False,
         })
 
-    return templates.TemplateResponse(request=request, name="download.html", context=context)
+    response = templates.TemplateResponse(request=request, name="download.html", context=context)
+    await _record_unique_visit(request, response, drive_ref.id, token)
+    return response
 
 
 @router.get("/player/{token}", response_class=HTMLResponse)
@@ -266,7 +283,9 @@ async def player_page(request: Request, token: str):
         "token": token,
         "filename": drive_ref.filename,
     }
-    return templates.TemplateResponse(request=request, name="player.html", context=context)
+    response = templates.TemplateResponse(request=request, name="player.html", context=context)
+    await _record_unique_visit(request, response, drive_ref.id, token)
+    return response
 
 
 @router.get("/api/download/{token}/manifest")
@@ -288,7 +307,6 @@ async def get_streaming_manifest(token: str):
             "success": True,
             "ready": True,
             "filename": drive_ref.filename,
-            "media_key": perm.media_key,
             "videos": cached_stream["videos"],
             "audios": cached_stream.get("audios") or [],
         }
@@ -308,7 +326,6 @@ async def get_streaming_manifest(token: str):
             "success": True,
             "ready": True,
             "filename": drive_ref.filename,
-            "media_key": perm.media_key,
             "videos": stream_data["videos"],
             "audios": stream_data["audios"],
         }

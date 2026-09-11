@@ -11,6 +11,7 @@ python-dotenv>=1.0.0
 # Database & Async Engine (SQLite WAL)
 sqlalchemy>=2.0.52
 aiosqlite>=0.22.1
+alembic>=1.14.0
 
 # Schema Validation & Models
 pydantic>=2.13.5

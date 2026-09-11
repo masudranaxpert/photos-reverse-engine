@@ -33,6 +33,7 @@ class MediaItemResponse(BaseModel):
     error_message: Optional[str] = None
     api_key_id: Optional[int] = None
     api_key_name: Optional[str] = None
+    visitor_count: int = 0
     created_at: str
 
 
@@ -136,6 +137,7 @@ async def list_media_files(
                 error_message=drive_ref.error_message,
                 api_key_id=drive_ref.api_key_id,
                 api_key_name=api_key_name,
+                visitor_count=drive_ref.visitor_count or 0,
                 created_at=str(drive_ref.created_at),
             )
         )

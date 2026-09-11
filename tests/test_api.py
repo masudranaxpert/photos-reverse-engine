@@ -12,6 +12,7 @@ from starlette.testclient import TestClient
 from app.main import app
 from app.services.cache_service import get_cached_url, set_cached_url
 import asyncio
+import uuid
 
 
 class TestFastAPIBigSystem(unittest.TestCase):
@@ -447,7 +448,7 @@ class TestFastAPIBigSystem(unittest.TestCase):
             data = perm_manifest_res.json()
             self.assertTrue(data["success"])
             self.assertIn("videos", data)
-            self.assertEqual(data["media_key"], perm_media_key)
+            self.assertNotIn("media_key", data)  # Security: must not leak Google Photos media_key
 
             # Raw .mpd endpoint
             mpd_res = self.client.get(f"/api/download/{perm_token}/manifest.mpd")
@@ -469,6 +470,74 @@ class TestFastAPIBigSystem(unittest.TestCase):
             embed_res = self.client.get(f"/embed/{perm_token}")
             self.assertEqual(embed_res.status_code, 200)
             self.assertIn("artplayer", embed_res.text)
+
+    def test_18_visitor_count_and_public_privacy(self):
+        from app.database import get_db
+        from app.models import DriveRef, PermanentItem
+        from sqlalchemy import select
+
+        token = "vtest_" + uuid.uuid4().hex[:16]
+        d_id = "vtest_drive_" + uuid.uuid4().hex[:12]
+
+        async def _seed():
+            async with get_db() as db:
+                ref = DriveRef(
+                    drive_id=d_id,
+                    token=token,
+                    filename="secret_movie.mp4",
+                    file_size=1024,
+                    file_status="ok",
+                    visitor_count=0,
+                )
+                db.add(ref)
+                await db.flush()
+                perm = PermanentItem(
+                    drive_ref_id=ref.id,
+                    media_key="AF1QipSecretKey_" + uuid.uuid4().hex[:8],
+                    email="admin@photos.com",
+                )
+                db.add(perm)
+                await db.commit()
+
+        asyncio.run(_seed())
+
+        # 1. Public JSON status: must NOT leak drive_id or share_url
+        res = self.client.get(f"/api/download/{token}")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertNotIn("drive_id", data)
+        self.assertNotIn("share_url", data)
+
+        # 2. First visit to download page: increments visitor_count from 0 to 1 and sets cookie
+        client2 = TestClient(app)
+        page1 = client2.get(f"/download/{token}")
+        self.assertEqual(page1.status_code, 200)
+        self.assertIn(f"viewed_{token}", page1.cookies)
+
+        # Verify DB visitor_count is 1
+        async def _get_count():
+            async with get_db() as db:
+                r = await db.execute(select(DriveRef.visitor_count).where(DriveRef.token == token))
+                return r.scalar()
+
+        self.assertEqual(asyncio.run(_get_count()), 1)
+
+        # 3. Subsequent visits (refresh/F5 spam) with cookie: count stays 1
+        page2 = client2.get(f"/download/{token}")
+        self.assertEqual(page2.status_code, 200)
+        self.assertEqual(asyncio.run(_get_count()), 1)
+
+        # 4. Admin media list: admin CAN see visitor_count
+        headers = getattr(self, "headers", None)
+        if not headers:
+            login_res = self.client.post("/api/auth/login", json={"username": "admin", "password": "secretpassword123"})
+            headers = {"Authorization": f"Bearer {login_res.json()['access_token']}"}
+
+        media_res = self.client.get("/api/media?search=" + token, headers=headers)
+        self.assertEqual(media_res.status_code, 200)
+        m_data = media_res.json()
+        self.assertEqual(len(m_data["items"]), 1)
+        self.assertEqual(m_data["items"][0]["visitor_count"], 1)
 
 
 if __name__ == "__main__":

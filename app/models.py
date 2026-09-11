@@ -140,6 +140,7 @@ class DriveRef(Base):
     api_key_id: Mapped[Optional[int]] = mapped_column(
         Integer, ForeignKey("api_keys.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    visitor_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
 
 
