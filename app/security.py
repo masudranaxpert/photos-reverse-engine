@@ -127,29 +127,27 @@ def create_access_token(
     return token, expire, int(duration.total_seconds())
 
 
-async def get_current_admin(
+async def authenticate_admin(
     request: Request,
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
-    x_api_key: Optional[str] = Depends(api_key_header),
-    query_api_key: Optional[str] = Depends(api_key_query),
+    credentials: Optional[HTTPAuthorizationCredentials] = None,
+    x_api_key: Optional[str] = None,
+    query_api_key: Optional[str] = None,
 ) -> dict:
-    """
-    Authenticate caller via persistent API Key, JWT Bearer token, or browser session cookie.
-    Enables direct, simple API access for external developers/clients without session tokens.
-    """
+    """Core admin authentication validator for both API routes and frontend guards."""
     from app.models import Admin, ApiKey
 
-    # 1. Check API Key candidates (X-API-Key header, query param, or Bearer gpmc_...)
+    # 1. Check API Key candidates (header, query param, or Bearer gpmc_...)
     candidate_key = None
-    if x_api_key and x_api_key.strip():
+    if isinstance(x_api_key, str) and x_api_key.strip():
         candidate_key = x_api_key.strip()
-    elif query_api_key and query_api_key.strip():
+    elif isinstance(query_api_key, str) and query_api_key.strip():
         candidate_key = query_api_key.strip()
-    elif credentials and credentials.credentials:
+    elif credentials and hasattr(credentials, "credentials") and credentials.credentials:
         bearer_val = credentials.credentials.strip()
         if bearer_val.startswith("gpmc_") or len(bearer_val.split(".")) != 3:
             candidate_key = bearer_val
-    else:
+
+    if not candidate_key:
         hdr_key = request.headers.get("X-API-Key")
         query_key = request.query_params.get("api_key")
         auth_hdr = request.headers.get("Authorization", "")
@@ -206,7 +204,7 @@ async def get_current_admin(
 
     # 2. Check JWT Bearer token or session cookie
     token = None
-    if credentials and credentials.credentials:
+    if credentials and hasattr(credentials, "credentials") and credentials.credentials:
         token = credentials.credentials.strip()
     elif request.headers.get("Authorization", "").startswith("Bearer "):
         token = request.headers.get("Authorization")[7:].strip()
@@ -218,7 +216,7 @@ async def get_current_admin(
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Authentication required. Provide 'X-API-Key' header, 'api_key' query parameter, or 'Authorization: Bearer <token>'",
+            detail="Authentication required.",
             headers={"WWW-Authenticate": "Bearer"},
         )
     try:
@@ -231,7 +229,6 @@ async def get_current_admin(
                 headers={"WWW-Authenticate": "Bearer"},
             )
     except JWTError:
-        # Check if the bearer token was actually an API key that didn't start with gpmc_
         async with get_db() as db:
             stmt = select(ApiKey).where(ApiKey.key == token, ApiKey.is_active.is_(True))
             res = await db.execute(stmt)
@@ -268,12 +265,23 @@ async def get_current_admin(
         }
 
 
+async def get_current_admin(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+    x_api_key: Optional[str] = Depends(api_key_header),
+    query_api_key: Optional[str] = Depends(api_key_query),
+) -> dict:
+    """FastAPI dependency for authenticating admin users."""
+    return await authenticate_admin(request, credentials, x_api_key, query_api_key)
+
+
 async def is_authenticated_admin(request: Request) -> bool:
     """Return True if request has valid admin credentials, False otherwise."""
     try:
-        await get_current_admin(request)
+        await authenticate_admin(request)
         return True
     except Exception:
         return False
+
 
 

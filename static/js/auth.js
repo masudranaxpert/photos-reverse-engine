@@ -3,13 +3,7 @@
  */
 
 document.addEventListener("DOMContentLoaded", () => {
-  // If already on login page and authenticated, redirect to dashboard
   if (window.location.pathname.includes("/login")) {
-    if (API.isAuthenticated()) {
-      window.location.href = "/";
-      return;
-    }
-
     const form = document.getElementById("login-form");
     const errorBox = document.getElementById("auth-error");
     const submitBtn = document.getElementById("login-btn");
