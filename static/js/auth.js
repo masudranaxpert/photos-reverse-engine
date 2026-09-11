@@ -63,7 +63,11 @@ function hideAuthError() {
   }
 }
 
-function logout() {
+async function logout() {
+  try {
+    await API.request("/api/auth/logout", { method: "POST" });
+  } catch (e) {}
   API.clearAuth();
-  window.location.href = "/login";
+  document.cookie = "access_token=; path=/; max-age=0; SameSite=Lax";
+  window.location.replace("/login");
 }

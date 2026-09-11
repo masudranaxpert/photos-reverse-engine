@@ -13,6 +13,22 @@
   <!-- Design System -->
   <link rel="stylesheet" href="/static/css/main.css?v=6">
   {% block extra_css %}{% endblock %}
+
+  <!-- Pre-render auth guard: prevents any unauthenticated screen flicker -->
+  <script>
+    (function() {
+      var p = window.location.pathname;
+      if (p !== "/login" && !p.startsWith("/download") && !p.startsWith("/player") && !p.startsWith("/embed")) {
+        var tok = localStorage.getItem("photos_engine_token") || localStorage.getItem("auth_token");
+        var exp = localStorage.getItem("photos_engine_token_exp");
+        var isExpired = exp && Math.floor(Date.now() / 1000) >= parseInt(exp, 10);
+        if (!tok || isExpired) {
+          document.documentElement.style.display = "none";
+          window.location.replace("/login");
+        }
+      }
+    })();
+  </script>
 </head>
 <body>
 

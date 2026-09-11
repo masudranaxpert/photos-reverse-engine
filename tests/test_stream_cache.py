@@ -23,6 +23,12 @@ class TestStreamCacheSystem(unittest.TestCase):
     def setUpClass(cls):
         cls.client = TestClient(app)
         asyncio.run(init_db())
+        async def _seed_admin():
+            from app.models import Admin
+            from app.security import hash_password
+            async with get_db() as db:
+                db.add(Admin(username="cache_admin", password_hash=hash_password("admin123"), is_active=True))
+        asyncio.run(_seed_admin())
 
     def test_01_stream_cache_lifecycle(self):
         """Test set, get, is_cached, expiration, and cleanup in stream_cache_service."""
@@ -139,7 +145,19 @@ class TestStreamCacheSystem(unittest.TestCase):
         self.assertEqual(man_data["videos"][0]["label"], "720P")
 
     def test_03_stream_cache_frontend_pages(self):
-        """Verify /stream-cache template loads successfully."""
-        res = self.client.get("/stream-cache")
-        self.assertEqual(res.status_code, 200)
-        self.assertIn("20-Min Stream Cache", res.text)
+        """Verify /stream-cache redirect when unauthenticated and 200 OK when authenticated."""
+        from app.security import create_access_token
+        # 1. Unauthenticated redirect
+        unauth_res = self.client.get("/stream-cache", follow_redirects=False)
+        self.assertEqual(unauth_res.status_code, 303)
+        self.assertEqual(unauth_res.headers["location"], "/login")
+
+        # 2. Authenticated access
+        token, _, _ = create_access_token({"sub": "cache_admin"})
+        self.client.cookies.set("access_token", token)
+        try:
+            res = self.client.get("/stream-cache")
+            self.assertEqual(res.status_code, 200)
+            self.assertIn("20-Min Stream Cache", res.text)
+        finally:
+            self.client.cookies.clear()

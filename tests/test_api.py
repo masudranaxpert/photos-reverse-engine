@@ -31,9 +31,15 @@ class TestFastAPIBigSystem(unittest.TestCase):
         self.assertEqual(res_login.status_code, 200)
         self.assertIn("Sign In to Engine", res_login.text)
 
-        res_home = self.client.get("/")
-        self.assertEqual(res_home.status_code, 200)
-        self.assertIn("Instant Engine", res_home.text)
+        # Unauthenticated / redirects to /login (303)
+        res_home_redirect = self.client.get("/", follow_redirects=False)
+        self.assertEqual(res_home_redirect.status_code, 303)
+        self.assertEqual(res_home_redirect.headers["location"], "/login")
+
+        # Following redirects arrives at /login
+        res_home_followed = self.client.get("/")
+        self.assertEqual(res_home_followed.status_code, 200)
+        self.assertIn("Sign In to Engine", res_home_followed.text)
 
     def test_01_health_check(self):
         """Verify health check returns healthy status and SQLite WAL journal mode."""

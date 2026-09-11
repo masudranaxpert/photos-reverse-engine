@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
@@ -89,31 +89,41 @@ app.include_router(notices.router)
 # Frontend pages
 @app.get("/", tags=["Frontend"])
 async def dashboard_page(request: Request):
-    """Render main management dashboard page."""
+    """Render main management dashboard page (requires admin auth)."""
+    if not await is_request_authenticated_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse(request=request, name="index.html")
 
 
 @app.get("/login", tags=["Frontend"])
 async def login_page(request: Request):
-    """Render administrator login page."""
+    """Render administrator login page (redirects to / if already logged in)."""
+    if await is_request_authenticated_admin(request):
+        return RedirectResponse(url="/", status_code=303)
     return templates.TemplateResponse(request=request, name="login.html")
 
 
 @app.get("/cached-urls", tags=["Frontend"])
 async def cached_urls_page(request: Request):
-    """Render 30-min cached download URLs management page."""
+    """Render 30-min cached download URLs management page (requires admin auth)."""
+    if not await is_request_authenticated_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse(request=request, name="cached_urls.html")
 
 
 @app.get("/stream-cache", tags=["Frontend"])
 async def stream_cache_page(request: Request):
-    """Render 20-min cached streaming URLs management page."""
+    """Render 20-min cached streaming URLs management page (requires admin auth)."""
+    if not await is_request_authenticated_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse(request=request, name="stream_cache.html")
 
 
 @app.get("/audit", tags=["Frontend"])
 async def audit_page(request: Request):
-    """Render system audit log page."""
+    """Render system audit log page (requires admin auth)."""
+    if not await is_request_authenticated_admin(request):
+        return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse(request=request, name="audit.html")
 
 
