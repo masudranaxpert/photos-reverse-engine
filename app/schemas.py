@@ -147,11 +147,12 @@ class UploadResponse(BaseModel):
     status: str = Field(..., description="imported | already_exists")
     filename: Optional[str] = None
     file_size: Optional[int] = None
+    download_url: Optional[str] = Field(None, description="Expiring 45-character download URL valid for 1.5 hours")
 
 
 class DownloadTokenResponse(BaseModel):
     token: str
-    status: str = Field(..., description="processing | ready | not_found")
+    status: str = Field(..., description="processing | ready | not_found | expired | failed")
     download_url: Optional[str] = None
     filename: Optional[str] = None
     file_size: Optional[int] = None

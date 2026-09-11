@@ -8,7 +8,7 @@ import logging
 import uuid
 
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import delete, select
 
 from app.database import get_db
@@ -16,16 +16,28 @@ from app.models import DriveRef
 from app.schemas import UploadRequest, UploadResponse
 from app.security import get_current_admin
 from app.services.drive_api_service import get_drive_file_metadata
+from app.services.signed_token_service import create_expiring_token
 
 router = APIRouter(prefix="/api/upload", tags=["Upload"])
 
 logger = logging.getLogger("photos_engine.upload")
 
 
+def _build_download_url(request: Optional[Request], token: str) -> str:
+    """Generate a clean 45-character URL-safe expiring download URL."""
+    expiring_code = create_expiring_token(token)
+    if not request:
+        return f"/download/{expiring_code}"
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+    return f"{proto}://{host}/download/{expiring_code}"
+
+
 async def _process_upload(
     drive_id_raw: str,
     label: Optional[str] = None,
     api_key_id: Optional[int] = None,
+    request: Optional[Request] = None,
 ) -> UploadResponse:
     drive_id = drive_id_raw.strip()
     label = (label.strip() if label else "") or drive_id[:16]
@@ -66,6 +78,7 @@ async def _process_upload(
                 status="already_exists",
                 filename=existing.filename,
                 file_size=existing.file_size,
+                download_url=_build_download_url(request, existing.token),
             )
 
     # ── 2. Query Google Drive API for exact file metadata ──────────────────────
@@ -140,12 +153,14 @@ async def _process_upload(
         status="queued",
         filename=filename,
         file_size=file_size,
+        download_url=_build_download_url(request, token),
     )
 
 
 @router.post("", response_model=UploadResponse)
 async def upload_drive_file(
     req: UploadRequest,
+    request: Request,
     current_auth: dict = Depends(get_current_admin),
 ):
     """
@@ -153,15 +168,16 @@ async def upload_drive_file(
     Requires an active API key (X-API-Key header or api_key query) or admin session.
     """
     api_key_id = current_auth.get("key_id") if current_auth.get("auth_type") == "api_key" else None
-    return await _process_upload(req.drive_id, api_key_id=api_key_id)
+    return await _process_upload(req.drive_id, api_key_id=api_key_id, request=request)
 
 
 @router.post("/{name}", response_model=UploadResponse, include_in_schema=False)
 async def upload_by_name(
     name: str,
     req: UploadRequest,
+    request: Request,
     current_auth: dict = Depends(get_current_admin),
 ):
     """Legacy alias supporting path-based names."""
     api_key_id = current_auth.get("key_id") if current_auth.get("auth_type") == "api_key" else None
-    return await _process_upload(req.drive_id, label=name, api_key_id=api_key_id)
+    return await _process_upload(req.drive_id, label=name, api_key_id=api_key_id, request=request)

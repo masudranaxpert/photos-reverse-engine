@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% if status == 'ready' %}{{ filename or 'Download Link Generated' }} — {{ brand_name or 'Instant Engine' }}{% elif status == 'not_found' %}Not Found — {{ brand_name or 'Instant Engine' }}{% elif status == 'failed' %}Link Generation Failed — {{ brand_name or 'Instant Engine' }}{% else %}Generating Link… — {{ brand_name or 'Instant Engine' }}{% endif %}</title>
+  <title>{% if status == 'ready' %}{{ filename or 'Download Link Generated' }} — {{ brand_name or 'Instant Engine' }}{% elif status == 'expired' %}Link Expired — {{ brand_name or 'Instant Engine' }}{% elif status == 'not_found' %}Not Found — {{ brand_name or 'Instant Engine' }}{% elif status == 'failed' %}Link Generation Failed — {{ brand_name or 'Instant Engine' }}{% else %}Generating Link… — {{ brand_name or 'Instant Engine' }}{% endif %}</title>
   <meta name="robots" content="noindex, nofollow">
   <meta name="referrer" content="no-referrer">
   <style>
@@ -230,6 +230,32 @@
         </h2>
         <span class="note-text" style="text-align: left;">
           <i><b>Note:</b> This download link doesn't exist or may have expired. Please check the URL and try again.</i>
+          <b><i>- {{ brand_name or 'Instant Engine' }}</i></b>
+        </span>
+        <p class="token-mono">{{ token }}</p>
+      </div>
+
+      {% elif status == 'expired' %}
+      <!-- ── LINK EXPIRED ── -->
+      <br><br>
+      <div class="loading nf-note">
+        <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: .75rem; color: #dc2626;">
+          <svg xmlns="http://www.w3.org/2000/svg" height="26" width="26" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="inline-svg">
+            <circle cx="12" cy="12" r="10"></circle>
+            <polyline points="12 6 12 12 16 14"></polyline>
+          </svg>
+          Link Expired
+        </h2>
+        {% if filename %}
+        <div class="file-info" style="margin-bottom: 0.8rem;">
+          <div class="file-info-meta">
+            <span class="file-info-name" title="{{ filename }}">{{ filename }}</span>
+            {% if file_size %}<span class="file-info-size">{% set mb = file_size / 1048576 %}{% if mb >= 1024 %}{{ (mb / 1024)|round(2) }} GB{% else %}{{ mb|round(1) }} MB{% endif %}</span>{% endif %}
+          </div>
+        </div>
+        {% endif %}
+        <span class="note-text" style="text-align: left;">
+          <i><b>Notice:</b> This download link has expired. Please generate a new download link.</i>
           <b><i>- {{ brand_name or 'Instant Engine' }}</i></b>
         </span>
         <p class="token-mono">{{ token }}</p>

@@ -70,15 +70,40 @@ async def _resolve_brand_name(request: Request) -> str | None:
     return None
 
 
-async def _resolve_token(token: str) -> tuple[DriveRef | None, PermanentItem | None, TempImport | None]:
-    """Resolve token → (drive_ref, permanent_item, temp_import). Any can be None."""
+async def _resolve_token(token: str) -> tuple[DriveRef | None, PermanentItem | None, TempImport | None, str]:
+    """
+    Resolve token_or_signed → (drive_ref, permanent_item, temp_import, token_status).
+    token_status: 'valid' | 'expired' | 'not_found'
+    """
+    from app.services.signed_token_service import verify_expiring_token
+
+    raw_token = token
+    token_status = "valid"
+
+    if len(token) == 45:
+        extracted_token, verify_status = verify_expiring_token(token)
+        if verify_status == "expired":
+            token_status = "expired"
+            raw_token = extracted_token
+        elif verify_status == "valid":
+            token_status = "valid"
+            raw_token = extracted_token
+        else:
+            return None, None, None, "not_found"
+
+    if not raw_token:
+        return None, None, None, "not_found"
+
     async with get_db() as db:
-        stmt = select(DriveRef).where(DriveRef.token == token)
+        stmt = select(DriveRef).where(DriveRef.token == raw_token)
         res = await db.execute(stmt)
         drive_ref = res.scalar_one_or_none()
 
     if not drive_ref:
-        return None, None, None
+        return None, None, None, "not_found"
+
+    if token_status == "expired":
+        return drive_ref, None, None, "expired"
 
     async with get_db() as db:
         stmt = select(PermanentItem).where(PermanentItem.drive_ref_id == drive_ref.id).limit(1)
@@ -86,7 +111,7 @@ async def _resolve_token(token: str) -> tuple[DriveRef | None, PermanentItem | N
         perm = res.scalar_one_or_none()
 
     if perm:
-        return drive_ref, perm, None
+        return drive_ref, perm, None, "valid"
 
     async with get_db() as db:
         stmt = (
@@ -98,7 +123,7 @@ async def _resolve_token(token: str) -> tuple[DriveRef | None, PermanentItem | N
         res = await db.execute(stmt)
         temp = res.scalar_one_or_none()
 
-    return drive_ref, None, temp
+    return drive_ref, None, temp, "valid"
 
 
 async def _get_download_url(media_key: str, source: str) -> str | None:
@@ -160,9 +185,20 @@ async def _record_unique_visit(request: Request, response: Response, drive_ref_i
 @router.get("/api/download/{token}", response_model=DownloadTokenResponse)
 async def get_download_info(token: str):
     """JSON status for a token: returns download_url when ready."""
-    drive_ref, perm, temp = await _resolve_token(token)
+    drive_ref, perm, temp, token_status = await _resolve_token(token)
 
-    if not drive_ref:
+    if token_status == "expired":
+        return DownloadTokenResponse(
+            token=token,
+            status="expired",
+            download_url=None,
+            filename=drive_ref.filename if drive_ref else None,
+            file_size=drive_ref.file_size if drive_ref else None,
+            is_permanent=False,
+            has_stream_cache=False,
+        )
+
+    if not drive_ref or token_status == "not_found":
         raise HTTPException(status_code=404, detail="Token not found")
 
     if perm:
@@ -204,8 +240,22 @@ async def get_download_info(token: str):
 @router.get("/download/{token}", response_class=HTMLResponse)
 async def download_page(request: Request, token: str, background_tasks: BackgroundTasks):
     brand_name = await _resolve_brand_name(request)
-    drive_ref, perm, temp = await _resolve_token(token)
-    if not drive_ref:
+    drive_ref, perm, temp, token_status = await _resolve_token(token)
+
+    if token_status == "expired":
+        return templates.TemplateResponse(
+            request=request,
+            name="download.html",
+            context={
+                "status": "expired",
+                "token": token,
+                "brand_name": brand_name,
+                "filename": drive_ref.filename if drive_ref else None,
+                "file_size": drive_ref.file_size if drive_ref else None,
+            },
+        )
+
+    if not drive_ref or token_status == "not_found":
         return templates.TemplateResponse(
             request=request,
             name="download.html",
@@ -278,8 +328,10 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
 @router.get("/embed/{token}", response_class=HTMLResponse)
 async def player_page(request: Request, token: str):
     """Serve dedicated full-browser or iframe-embeddable ArtPlayer."""
-    drive_ref, perm, temp = await _resolve_token(token)
-    if not drive_ref:
+    drive_ref, perm, temp, token_status = await _resolve_token(token)
+    if token_status == "expired":
+        raise HTTPException(status_code=410, detail="Streaming link has expired.")
+    if not drive_ref or token_status == "not_found":
         raise HTTPException(status_code=404, detail="Token not found")
     if not perm:
         raise HTTPException(
@@ -299,8 +351,10 @@ async def player_page(request: Request, token: str):
 @router.get("/api/download/{token}/manifest")
 async def get_streaming_manifest(token: str):
     """Fetch direct streaming video and audio streams for a permanent item."""
-    drive_ref, perm, temp = await _resolve_token(token)
-    if not drive_ref:
+    drive_ref, perm, temp, token_status = await _resolve_token(token)
+    if token_status == "expired":
+        raise HTTPException(status_code=410, detail="Streaming link has expired.")
+    if not drive_ref or token_status == "not_found":
         raise HTTPException(status_code=404, detail="Token not found")
     if not perm:
         raise HTTPException(
@@ -358,8 +412,10 @@ async def get_streaming_manifest(token: str):
 @router.get("/api/download/{token}/manifest.mpd")
 async def get_streaming_manifest_mpd(token: str):
     """Serve DASH .mpd XML manifest directly for video players."""
-    drive_ref, perm, temp = await _resolve_token(token)
-    if not drive_ref or not perm:
+    drive_ref, perm, temp, token_status = await _resolve_token(token)
+    if token_status == "expired":
+        raise HTTPException(status_code=410, detail="Streaming link has expired.")
+    if not drive_ref or not perm or token_status == "not_found":
         raise HTTPException(status_code=404, detail="Not found or not a permanent item")
 
     try:
