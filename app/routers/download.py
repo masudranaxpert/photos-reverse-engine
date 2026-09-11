@@ -159,7 +159,7 @@ async def _fetch_download_url_direct(media_key: str, source: str, timeout: float
     return None
 
 
-async def _get_download_url(media_key: str, source: str, timeout: float = 12.0) -> str | None:
+async def _get_download_url(media_key: str, source: str, timeout: float = 5.0) -> str | None:
     """Try cache first, then resolve via single-flight deduplicated task."""
     cached = await get_cached_url(media_key)
     if cached and cached.get("download_url"):
@@ -167,7 +167,7 @@ async def _get_download_url(media_key: str, source: str, timeout: float = 12.0) 
 
     task = _active_url_fetches.get(media_key)
     if task is None or task.done():
-        task = asyncio.create_task(_fetch_download_url_direct(media_key, source, timeout=timeout))
+        task = asyncio.create_task(_fetch_download_url_direct(media_key, source, timeout=25.0))
         _active_url_fetches[media_key] = task
 
     try:

@@ -10,7 +10,9 @@ from sqlalchemy.exc import IntegrityError
 
 from app.database import get_db
 from app.models import BackgroundJob, DriveRef, PermanentItem, SystemSetting, TempImport
+from app.services.cache_service import set_cached_url
 from app.services.mobile_service import extract_email_from_auth_data, get_mobile_client
+from app.services.stream_cache_service import fetch_and_cache_stream
 from app.services.web_service import get_web_client
 
 logger = logging.getLogger("photos_engine.worker")
@@ -486,6 +488,7 @@ async def _execute_drive_import_async(
                         dedup_key=dedup_key_out or None,
                         share_url=share_url_out,
                     ))
+            asyncio.create_task(_prewarm_temp_item(media_key_out, dedup_key_out))
 
         except Exception as exc:
             logger.error("[drive_import] Background import failed for drive_id=%s: %s", drive_id, exc)
@@ -568,6 +571,78 @@ async def _cleanup_temp_web_item(dedup_key: str, media_key: str) -> None:
             await loop.run_in_executor(None, web_client.close)
     except Exception as exc:
         logger.warning("[sweep/promote] Non-fatal temp cleanup warning for %s: %s", media_key, exc)
+
+
+async def _prewarm_permanent_item(media_key: str, drive_ref_id: int) -> None:
+    """Pre-warm download URL and stream manifest immediately after promotion."""
+    try:
+        mobile_client, _ = await get_mobile_client()
+        info = await mobile_client.get_download_url_async(media_key, timeout=25.0)
+        if info.download_url:
+            await set_cached_url(media_key, info.download_url, dedup_key=getattr(info, "dedup_key", None), source="mobile")
+            logger.info("[prewarm] Cached permanent download URL for %s", media_key)
+        await fetch_and_cache_stream(media_key, drive_ref_id)
+    except Exception as exc:
+        logger.debug("[prewarm] Permanent item pre-warm warning for %s: %s", media_key, exc)
+
+
+async def _prewarm_temp_item(media_key: str, dedup_key: Optional[str] = None) -> None:
+    """Pre-warm web download URL immediately after import."""
+    try:
+        client, _ = await get_web_client()
+        try:
+            info = await client.get_download_url_async(media_key, timeout=20.0)
+            if info.download_url:
+                await set_cached_url(media_key, info.download_url, dedup_key=dedup_key or getattr(info, "dedup_key", None), source="web")
+                logger.info("[prewarm] Cached temp download URL for %s", media_key)
+        finally:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, client.close)
+    except Exception as exc:
+        logger.debug("[prewarm] Temp item pre-warm warning for %s: %s", media_key, exc)
+
+
+async def _prewarm_uncached_permanent_items(limit: int = 10) -> int:
+    """Incrementally pre-warm older permanent items lacking active download cache."""
+    from app.models import DownloadCache
+    from app.services.cache_service import _utc_now_naive
+    from sqlalchemy import exists
+
+    now = _utc_now_naive()
+    async with get_db(write=False) as db:
+        stmt = (
+            select(PermanentItem.media_key, PermanentItem.drive_ref_id)
+            .where(~exists().where(
+                (DownloadCache.media_key == PermanentItem.media_key) &
+                (DownloadCache.expires_at > now)
+            ))
+            .order_by(PermanentItem.id.desc())
+            .limit(limit)
+        )
+        res = await db.execute(stmt)
+        uncached = res.all()
+
+    if not uncached:
+        return 0
+
+    try:
+        mobile_client, _ = await get_mobile_client()
+    except Exception:
+        return 0
+
+    warmed = 0
+    for media_key, drive_ref_id in uncached:
+        try:
+            info = await mobile_client.get_download_url_async(media_key, timeout=15.0)
+            if info.download_url:
+                await set_cached_url(media_key, info.download_url, dedup_key=getattr(info, "dedup_key", None), source="mobile")
+                warmed += 1
+            await fetch_and_cache_stream(media_key, drive_ref_id)
+        except Exception:
+            pass
+    if warmed > 0:
+        logger.info("[prewarm] Incremental sweep pre-warmed %d permanent items", warmed)
+    return warmed
 
 
 async def run_pipeline_sweep_logic(wait: bool = False) -> dict:
@@ -707,6 +782,8 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                         if item.dedup_key:
                             asyncio.create_task(_cleanup_temp_web_item(item.dedup_key, item.media_key))
 
+                        asyncio.create_task(_prewarm_permanent_item(permanent_key, item.drive_ref_id))
+
                         promoted += 1
                         logger.info(
                             "[sweep/promote] Promoted media_key=%s -> permanent_key=%s",
@@ -729,5 +806,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                     logger.warning("[sweep/promote] Failed for media_key=%s: %s", item.media_key, exc)
         except Exception as exc:
             logger.warning("[sweep/promote] Mobile client error: %s", exc)
+
+    asyncio.create_task(_prewarm_uncached_permanent_items(limit=10))
 
     return {"share_generated": generated, "promoted": promoted}
