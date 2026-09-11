@@ -83,33 +83,21 @@ def parse_mpd_streams(manifest_xml: str) -> Dict[str, List[Dict[str, Any]]]:
 
 
 async def fetch_manifest_via_proxy(proxy_base: str, media_key: str, token: str, user_agent: str) -> str:
-    """Fetch DASH MPD manifest through Cloudflare Worker proxy to mask origin server IP."""
-    import asyncio
-    import gzip
-    import urllib.request
+    """Fetch DASH MPD manifest through Cloudflare Worker proxy using httpcloak."""
+    import httpcloak
 
     manifest_url = f"{proxy_base.rstrip('/')}/p/{media_key}%3Dmm,dash-vm"
-    req = urllib.request.Request(
-        manifest_url,
-        data=b"",
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "User-Agent": user_agent or "com.google.android.apps.photos/6.80.0.627584067 (Linux; U; Android 14; Pixel 5; Build/UP1A.231005.007)",
-            "Accept-Encoding": "gzip",
-        },
-    )
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "User-Agent": user_agent or "com.google.android.apps.photos/6.80.0.627584067 (Linux; U; Android 14; Pixel 5; Build/UP1A.231005.007)",
+        "Accept-Encoding": "gzip",
+    }
 
-    loop = asyncio.get_running_loop()
-
-    def _fetch() -> str:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = resp.read()
-            if resp.info().get("Content-Encoding") == "gzip":
-                data = gzip.decompress(data)
-            return data.decode("utf-8")
-
-    return await loop.run_in_executor(None, _fetch)
+    with httpcloak.Session(preset="chrome-latest", timeout=15) as session:
+        resp = await session.post_async(manifest_url, headers=headers)
+        if not resp.ok:
+            raise RuntimeError(f"Cloudflare proxy HTTP {resp.status_code}: {resp.text[:120]}")
+        return resp.text
 
 
 async def get_streaming_data_for_media_key(media_key: str) -> Dict[str, Any]:
