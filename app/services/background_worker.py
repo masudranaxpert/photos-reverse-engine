@@ -658,7 +658,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
             mobile_client, mobile_account = await get_mobile_client()
             for item in pending_promote:
                 try:
-                    result = await mobile_client.import_share_url_async(item.share_url, timeout=15.0)
+                    result = await mobile_client.import_share_url_async(item.share_url, timeout=25.0)
                     import_result = result.get("import_result") if isinstance(result, dict) else result
                     status = (
                         import_result.get("status") if isinstance(import_result, dict)

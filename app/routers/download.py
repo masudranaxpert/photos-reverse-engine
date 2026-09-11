@@ -126,30 +126,27 @@ async def _resolve_token(token: str) -> tuple[DriveRef | None, PermanentItem | N
     return drive_ref, None, temp, "valid"
 
 
-async def _get_download_url(media_key: str, source: str) -> str | None:
-    """Try cache first, then resolve via appropriate client with timeout."""
-    cached = await get_cached_url(media_key)
-    if cached and cached.get("download_url"):
-        return cached["download_url"]
+_active_url_fetches: dict[str, asyncio.Task] = {}
 
+
+async def _fetch_download_url_direct(media_key: str, source: str, timeout: float = 12.0) -> str | None:
+    """Resolve download URL via appropriate client with timeout."""
     if source == "permanent":
-        # Use mobile client for permanent items
         try:
             from app.services.mobile_service import get_mobile_client
             client, _ = await get_mobile_client()
-            info = await client.get_download_url_async(media_key, timeout=8.0)
+            info = await client.get_download_url_async(media_key, timeout=timeout)
             if info.download_url:
                 await set_cached_url(media_key, info.download_url, dedup_key=getattr(info, "dedup_key", None), source="mobile")
                 return info.download_url
         except Exception as exc:
             logger.warning("[download] Mobile URL resolve failed for %s: %s", media_key, exc)
     else:
-        # Use web client for temp items
         try:
             from app.services.web_service import get_web_client
             client, _ = await get_web_client()
             try:
-                info = await client.get_download_url_async(media_key, timeout=8.0)
+                info = await client.get_download_url_async(media_key, timeout=timeout)
                 if info.download_url:
                     await set_cached_url(media_key, info.download_url, dedup_key=getattr(info, "dedup_key", None), source="web")
                     return info.download_url
@@ -160,6 +157,28 @@ async def _get_download_url(media_key: str, source: str) -> str | None:
             logger.warning("[download] Web URL resolve failed for %s: %s", media_key, exc)
 
     return None
+
+
+async def _get_download_url(media_key: str, source: str, timeout: float = 12.0) -> str | None:
+    """Try cache first, then resolve via single-flight deduplicated task."""
+    cached = await get_cached_url(media_key)
+    if cached and cached.get("download_url"):
+        return cached["download_url"]
+
+    task = _active_url_fetches.get(media_key)
+    if task is None or task.done():
+        task = asyncio.create_task(_fetch_download_url_direct(media_key, source, timeout=timeout))
+        _active_url_fetches[media_key] = task
+
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=timeout)
+    except (asyncio.TimeoutError, TimeoutError):
+        return None
+    except Exception:
+        return None
+    finally:
+        if task.done():
+            _active_url_fetches.pop(media_key, None)
 
 
 async def _increment_visitor_count(drive_ref_id: int, token: str) -> None:
@@ -303,7 +322,7 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
     }
 
     if perm:
-        download_url = await _get_download_url(perm.media_key, "permanent")
+        download_url = await _get_download_url(perm.media_key, "permanent", timeout=1.5)
         has_stream_cache = await is_stream_cached(perm.media_key)
         if not has_stream_cache:
             background_tasks.add_task(fetch_and_cache_stream, perm.media_key, drive_ref.id)
@@ -315,7 +334,7 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
             "has_stream_cache": has_stream_cache,
         })
     elif temp:
-        download_url = await _get_download_url(temp.media_key, "temp")
+        download_url = await _get_download_url(temp.media_key, "temp", timeout=1.5)
         context.update({
             "status": "ready" if download_url else "processing",
             "download_url": download_url,
