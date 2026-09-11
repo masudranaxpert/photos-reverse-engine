@@ -115,21 +115,29 @@ async def _process_upload(
 
     # ── 3. Persist DriveRef with pre-fetched metadata and status="queued" ───────
     token = uuid.uuid4().hex
+    drive_ref_id: int | None = None
 
-    async with get_db() as db:
-        drive_ref = DriveRef(
-            drive_id=drive_id,
-            token=token,
-            label=label,
-            filename=filename,
-            file_size=file_size,
-            file_status="queued",
-            api_key_id=api_key_id,
-        )
-        db.add(drive_ref)
-        await db.flush()
-        await db.refresh(drive_ref)
-        drive_ref_id = drive_ref.id
+    for attempt in range(5):
+        try:
+            async with get_db() as db:
+                drive_ref = DriveRef(
+                    drive_id=drive_id,
+                    token=token,
+                    label=label,
+                    filename=filename,
+                    file_size=file_size,
+                    file_status="queued",
+                    api_key_id=api_key_id,
+                )
+                db.add(drive_ref)
+                await db.commit()
+                drive_ref_id = drive_ref.id
+                break
+        except Exception as exc:
+            if "locked" in str(exc).lower() and attempt < 4:
+                await asyncio.sleep(0.1 * (2 ** attempt))
+                continue
+            raise
 
     # ── 4. Queue async background import into Google Photos ────────────────────
     from app.services.background_worker import queue_drive_import

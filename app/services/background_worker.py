@@ -223,6 +223,7 @@ async def enqueue_share_link_job() -> int:
 _import_sem: asyncio.Semaphore = asyncio.Semaphore(1)
 _import_sem_capacity: int = 1
 _promote_lock: asyncio.Lock = asyncio.Lock()
+_pipeline_sweep_lock: asyncio.Lock = asyncio.Lock()
 _web_cookies_ok: bool = True
 _active_import_ref_ids: set[int] = set()
 
@@ -345,6 +346,7 @@ async def _execute_drive_import_async(
     from app.services.quota_service import free_space_from_temp
     from app.services.notice_service import record_notice
     global _web_cookies_ok
+    sem_held = False
 
     try:
         if not _web_cookies_ok:
@@ -362,25 +364,26 @@ async def _execute_drive_import_async(
 
         sem = await _refresh_import_semaphore()
         logger.info("[drive_import] Waiting for import slot (cap=%d): drive_id=%s (ref_id=%d)", _import_sem_capacity, drive_id, drive_ref_id)
+        await sem.acquire()
+        sem_held = True
 
         media_key_out: str | None = None
         dedup_key_out: str | None = None
 
-        async with sem:
-            if not _web_cookies_ok:
-                logger.warning(
-                    "[drive_import] Import gate closed while waiting in slot — deferring drive_id=%s (ref_id=%d)",
-                    drive_id, drive_ref_id,
+        if not _web_cookies_ok:
+            logger.warning(
+                "[drive_import] Import gate closed while waiting in slot — deferring drive_id=%s (ref_id=%d)",
+                drive_id, drive_ref_id,
+            )
+            async with get_db() as db:
+                await db.execute(
+                    update(DriveRef)
+                    .where(DriveRef.id == drive_ref_id)
+                    .values(file_status="error", error_message="Cookies expired — import deferred")
                 )
-                async with get_db() as db:
-                    await db.execute(
-                        update(DriveRef)
-                        .where(DriveRef.id == drive_ref_id)
-                        .values(file_status="error", error_message="Cookies expired — import deferred")
-                    )
-                return False
+            return False
 
-            logger.info("[drive_import] Slot acquired — starting import for drive_id=%s (ref_id=%d)", drive_id, drive_ref_id)
+        logger.info("[drive_import] Slot acquired — starting import for drive_id=%s (ref_id=%d)", drive_id, drive_ref_id)
         client = None
         session_id = None
         try:
@@ -514,6 +517,8 @@ async def _execute_drive_import_async(
 
         return True
     finally:
+        if sem_held:
+            sem.release()
         _active_import_ref_ids.discard(drive_ref_id)
 
 
@@ -524,7 +529,17 @@ async def enqueue_promote_job() -> int:
 
 
 async def run_pipeline_sweep_logic() -> dict:
-    """Sweep queued drive imports, generate share links, and promote ready items."""
+    """Sweep queued drive imports, generate share links, and promote ready items with single-flight lock."""
+    if _pipeline_sweep_lock.locked():
+        logger.debug("[pipeline_sweep] Sweep already in progress — skipping concurrent execution.")
+        return {"status": "skipped", "reason": "sweep_already_running"}
+
+    async with _pipeline_sweep_lock:
+        return await _run_pipeline_sweep_logic_internal()
+
+
+async def _run_pipeline_sweep_logic_internal() -> dict:
+    """Internal implementation for pipeline sweep."""
     async with get_db() as db:
         queued_refs = (await db.execute(
             select(DriveRef).where(DriveRef.file_status == "queued").limit(5)
