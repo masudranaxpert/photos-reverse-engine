@@ -338,11 +338,10 @@ async def get_streaming_manifest_mpd(token: str):
         raise HTTPException(status_code=404, detail="Not found or not a permanent item")
 
     try:
-        from app.services.mobile_service import get_mobile_client
+        from app.services.streaming_service import get_streaming_data_for_media_key
 
-        client, _ = await get_mobile_client()
-        manifest = await client.get_stream_manifest_async(perm.media_key, protocol="dash")
-        return Response(content=manifest, media_type="application/dash+xml")
+        stream_data = await get_streaming_data_for_media_key(perm.media_key)
+        return Response(content=stream_data["manifest"], media_type="application/dash+xml")
     except Exception as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 

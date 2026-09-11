@@ -115,21 +115,17 @@ async def get_streaming_data_for_media_key(media_key: str) -> Dict[str, Any]:
 
     client, _ = await get_mobile_client()
 
-    manifest_xml = None
     if MANIFEST_PROXY_URL:
-        try:
-            token = await client.get_token_async()
-            manifest_xml = await fetch_manifest_via_proxy(
-                MANIFEST_PROXY_URL,
-                media_key,
-                token,
-                getattr(client, "user_agent", ""),
-            )
-            logger.info("Successfully fetched DASH manifest via Cloudflare proxy for media key %s", media_key[:16])
-        except Exception as exc:
-            logger.warning("Cloudflare manifest proxy failed (%s): falling back to direct photos_engine", exc)
-
-    if not manifest_xml:
+        # Enforce Cloudflare Worker proxy strictly — zero fallback to prevent origin IP leakage
+        token = await client.get_token_async()
+        manifest_xml = await fetch_manifest_via_proxy(
+            MANIFEST_PROXY_URL,
+            media_key,
+            token,
+            getattr(client, "user_agent", ""),
+        )
+        logger.info("Successfully fetched DASH manifest via Cloudflare proxy for media key %s", media_key[:16])
+    else:
         manifest_xml = await client.get_stream_manifest_async(media_key, protocol="dash")
 
     streams = parse_mpd_streams(manifest_xml)

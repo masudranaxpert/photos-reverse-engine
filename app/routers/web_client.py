@@ -64,12 +64,15 @@ async def create_web_session(
 
     account_email = status.account or ""
 
+    client = None
     try:
         client = NativeWebClient(cookies=raw_cookies)
         session_blob = client.export_session_blob()
-        client.close()
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to initialize web client session: {exc}")
+    finally:
+        if client:
+            client.close()
 
     session_id = f"sess_{uuid.uuid4().hex[:12]}"
     sess_obj = WebSession(
@@ -173,12 +176,15 @@ async def update_web_session(
             status = await NativeWebClient.check_status_async(raw_cookies)
             if not status.valid:
                 raise HTTPException(status_code=400, detail=f"Cookie verification failed: {status.message}")
+            client = None
             try:
                 client = NativeWebClient(cookies=raw_cookies)
                 blob = client.export_session_blob()
-                client.close()
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=f"Failed to refresh session blob: {exc}")
+            finally:
+                if client:
+                    client.close()
 
             sess.raw_cookies = raw_cookies
             sess.session_blob = blob

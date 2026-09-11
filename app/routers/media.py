@@ -562,16 +562,20 @@ async def clear_all_permanent_media(current_admin: dict = Depends(get_current_ad
             mobile_client, _ = await get_mobile_client()
             for mk in media_keys:
                 try:
-                    mobile_client.delete_by_media_key(mk)
+                    if hasattr(mobile_client, "delete_by_media_key_async"):
+                        await mobile_client.delete_by_media_key_async(mk)
+                    else:
+                        mobile_client.delete_by_media_key(mk)
                     mobile_cleaned += 1
                 except Exception:
                     pass
         except Exception:
             pass
 
-        # 2. Delete DownloadCache
+        # 2. Delete DownloadCache and StreamCache
         if media_keys:
             await db.execute(delete(DownloadCache).where(DownloadCache.media_key.in_(media_keys)))
+            await db.execute(delete(StreamCache).where(StreamCache.media_key.in_(media_keys)))
 
         # 3. Delete PermanentItem rows
         await db.execute(delete(PermanentItem).where(PermanentItem.id.in_(perm_ids)))
@@ -744,6 +748,7 @@ async def delete_single_media(
         # Delete from cache
         if req.media_key:
             await db.execute(delete(DownloadCache).where(DownloadCache.media_key == req.media_key))
+            await db.execute(delete(StreamCache).where(StreamCache.media_key == req.media_key))
 
         if temp_item:
             ref_id = temp_item.drive_ref_id

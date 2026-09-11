@@ -426,11 +426,14 @@ class TestFastAPIBigSystem(unittest.TestCase):
 
         # 5. Permanent item: mock mobile client and verify manifest endpoints
         mock_client = AsyncMock()
+        mock_client.get_token_async.return_value = "fake_token_123"
         mock_client.get_stream_manifest_async.return_value = dummy_mpd
         mock_client.get_download_url_async.return_value = AsyncMock(download_url="https://googleusercontent.com/test", dedup_key=None)
 
-        with patch("app.services.mobile_service.get_mobile_client", new_callable=AsyncMock) as mock_get_client:
+        with patch("app.services.mobile_service.get_mobile_client", new_callable=AsyncMock) as mock_get_client, \
+             patch("app.services.streaming_service.fetch_manifest_via_proxy", new_callable=AsyncMock) as mock_proxy:
             mock_get_client.return_value = (mock_client, None)
+            mock_proxy.return_value = dummy_mpd
 
             # JSON manifest endpoint
             perm_manifest_res = self.client.get(f"/api/download/{perm_token}/manifest")
