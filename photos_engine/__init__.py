@@ -11,6 +11,7 @@ from .client import (
     GPMCClient,
     NativeWebClient,
     PhotosEngineClient,
+    StreamNotReadyError,
     scrape_share_url,
     scrape_share_url_async,
 )

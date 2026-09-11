@@ -458,8 +458,16 @@ func (c *Client) GetStreamManifest(ctx context.Context, mediaKey string, protoco
 		}
 	}
 
+	if resp.StatusCode == http.StatusNotFound {
+		return "", fmt.Errorf("stream manifest not ready (status 404): video is still being processed or transcoded by Google Photos")
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("stream manifest returned error status %d: %s", resp.StatusCode, string(respBytes))
+		msg := strings.TrimSpace(string(respBytes))
+		if len(msg) > 100 || strings.Contains(msg, "PNG") {
+			msg = http.StatusText(resp.StatusCode)
+		}
+		return "", fmt.Errorf("stream manifest returned error status %d: %s", resp.StatusCode, msg)
 	}
 
 	return string(respBytes), nil

@@ -27,6 +27,9 @@ from .models import (
     ShareInfo,
     StorageQuota,
 )
+class StreamNotReadyError(RuntimeError):
+    """Raised when video stream manifest is not yet available (e.g. video still transcoding on Google Photos)."""
+    pass
 
 
 def _get_lib_path() -> str:
@@ -476,7 +479,12 @@ class PhotosEngineClient:
             ctypes.c_longlong(cv),
             ctypes.c_longlong(timeout_ms),
         )
-        return str(_parse_c_json(self._lib, raw_ptr, "GPMC_GetStreamManifest"))
+        try:
+            return str(_parse_c_json(self._lib, raw_ptr, "GPMC_GetStreamManifest"))
+        except RuntimeError as e:
+            if "not ready" in str(e) or "404" in str(e):
+                raise StreamNotReadyError(str(e)) from e
+            raise
 
     def create_album(self, album_name: str, media_keys: List[str], timeout: Optional[float] = None) -> ShareInfo:
         """Create a shared album containing the specified media keys."""
@@ -670,8 +678,13 @@ class PhotosEngineClient:
             ctypes.c_longlong(timeout_ms),
             ctypes.c_int64(callback_id),
         )
-        data = await future
-        return str(data)
+        try:
+            data = await future
+            return str(data)
+        except RuntimeError as e:
+            if "not ready" in str(e) or "404" in str(e):
+                raise StreamNotReadyError(str(e)) from e
+            raise
 
     async def create_share_link_async(self, media_keys: Union[str, List[str]], timeout: Optional[float] = None) -> PublicShareLink:
         """Generate a public photos.app.goo.gl link asynchronously using Go goroutines."""
