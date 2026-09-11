@@ -170,7 +170,7 @@ async def get_download_info(token: str):
         has_stream_cache = await is_stream_cached(perm.media_key)
         return DownloadTokenResponse(
             token=token,
-            status="ready",
+            status="ready" if download_url else "processing",
             download_url=download_url,
             filename=drive_ref.filename,
             file_size=drive_ref.file_size,
@@ -190,10 +190,10 @@ async def get_download_info(token: str):
             has_stream_cache=False,
         )
 
-    # drive_ref exists but no temp or permanent (edge case: mid-import)
+    # drive_ref exists but no temp or permanent (edge case: mid-import or error)
     return DownloadTokenResponse(
         token=token,
-        status="processing",
+        status="failed" if drive_ref.file_status in ("error", "not_found", "unsupported") else "processing",
         filename=drive_ref.filename,
         file_size=drive_ref.file_size,
         is_permanent=False,
@@ -247,7 +247,7 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
                 background_tasks.add_task(fetch_and_cache_stream, perm.media_key, drive_ref.id)
 
         context.update({
-            "status": "ready",
+            "status": "ready" if download_url else "processing",
             "download_url": download_url,
             "is_permanent": True,
             "has_stream_cache": has_stream_cache,
@@ -260,6 +260,9 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
             "is_permanent": False,
             "has_stream_cache": False,
         })
+    else:
+        if drive_ref.file_status in ("error", "not_found", "unsupported"):
+            context["status"] = "failed"
 
     response = templates.TemplateResponse(request=request, name="download.html", context=context)
     await _record_unique_visit(request, response, drive_ref.id, token)
