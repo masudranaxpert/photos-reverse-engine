@@ -114,6 +114,18 @@ class TestCAbiFixes(unittest.TestCase):
         self.lib.GPMC_FreeString(raw_ptr)
         res = json.loads(json_str)
         self.assertFalse(res.get("success"))
+    def test_gpwc_delete_permanently_cabi(self):
+        """Verify GPWC_DeletePermanently and GPWC_DeletePermanently_Async C-ABI exports exist."""
+        self.assertTrue(hasattr(self.lib, "GPWC_DeletePermanently"))
+        self.assertTrue(hasattr(self.lib, "GPWC_DeletePermanently_Async"))
+        self.lib.GPWC_DeletePermanently.argtypes = [ctypes.c_ulonglong, ctypes.c_char_p]
+        self.lib.GPWC_DeletePermanently.restype = ctypes.c_void_p
+        raw_ptr = self.lib.GPWC_DeletePermanently(99999999, b"test_dedup_key")
+        self.assertTrue(bool(raw_ptr))
+        json_str = ctypes.string_at(raw_ptr).decode("utf-8")
+        self.lib.GPMC_FreeString(raw_ptr)
+        res = json.loads(json_str)
+        self.assertFalse(res.get("success"))
         self.assertIn("client handle not found", res.get("error", ""))
 
 

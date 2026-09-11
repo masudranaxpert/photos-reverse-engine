@@ -511,6 +511,22 @@ func GPWC_ResetAccount(handle C.ulonglong, timeoutMs C.longlong) *C.char {
 	return jsonResponse(res, err)
 }
 
+//export GPWC_DeletePermanently
+func GPWC_DeletePermanently(handle C.ulonglong, cDedupKey *C.char) *C.char {
+	client := getWebClient(uint64(handle))
+	if client == nil {
+		return jsonResponse(nil, errors.New("client handle not found"))
+	}
+	dedupKey := C.GoString(cDedupKey)
+	if err := client.MoveToTrash([]string{dedupKey}); err != nil {
+		return jsonResponse(nil, fmt.Errorf("MoveToTrash failed: %w", err))
+	}
+	if err := client.EmptyTrash(); err != nil {
+		return jsonResponse(nil, fmt.Errorf("EmptyTrash failed: %w", err))
+	}
+	return jsonResponse(map[string]bool{"success": true}, nil)
+}
+
 
 //export GPMC_ScrapeShareURL
 func GPMC_ScrapeShareURL(cURL *C.char, timeoutMs C.longlong) *C.char {
@@ -716,6 +732,27 @@ func GPWC_GetStorageQuota_Async(handle C.ulonglong, timeoutMs C.longlong, callba
 	}
 	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
 		return client.GetStorageQuota()
+	})
+}
+
+//export GPWC_DeletePermanently_Async
+func GPWC_DeletePermanently_Async(handle C.ulonglong, cDedupKey *C.char, timeoutMs C.longlong, callbackID C.longlong) {
+	client := getWebClient(uint64(handle))
+	dedupKey := C.GoString(cDedupKey)
+	if client == nil {
+		dispatchAsync(callbackID, 0, func(ctx context.Context) (interface{}, error) {
+			return nil, errors.New("web client handle not found")
+		})
+		return
+	}
+	dispatchAsync(callbackID, timeoutMs, func(ctx context.Context) (interface{}, error) {
+		if err := client.MoveToTrash([]string{dedupKey}); err != nil {
+			return nil, fmt.Errorf("MoveToTrash failed: %w", err)
+		}
+		if err := client.EmptyTrash(); err != nil {
+			return nil, fmt.Errorf("EmptyTrash failed: %w", err)
+		}
+		return map[string]bool{"success": true}, nil
 	})
 }
 

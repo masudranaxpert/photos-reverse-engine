@@ -387,6 +387,8 @@ Both `NativeWebClient` and `WebClient` reference the same class.
 | [`client.create_share_link()`](#create_share_link-web) | [`PublicShareLink`](#publicsharelink) | Create public `photos.app.goo.gl` short link via `SFKp8c` RPC. |
 | `await client.create_share_link_async(...)` | [`PublicShareLink`](#publicsharelink) | Create public share link asynchronously via native Go Goroutine. |
 | [`client.reset_account()`](#reset_account) | [`AccountResetResult`](#accountresetresult) | Wipe entire library: move all items to trash and empty trash bin. |
+| [`client.delete_permanently()`](#delete_permanently-web) | `bool` | Permanently delete item by moving to trash and emptying trash. |
+| `await client.delete_permanently_async(...)` | `bool` | Permanently delete item asynchronously via native Go Goroutine. |
 | [`client.export_session_blob()`](#export_session_blob) | `bytes` | Export binary session state for database persistence. |
 | [`client.export_cookies()`](#export_cookies) | `Dict[str, str]` | Export current live cookies from session jar. |
 | [`client.close()`](#close) | `None` | Free the underlying Go client handle and allocated memory. |
@@ -681,6 +683,44 @@ Completely wipes the Google Photos library: paginates and moves all items to tra
 reset = client.reset_account()
 print(f"Library reset: {reset.total_deleted} items expunged, trash emptied: {reset.trash_emptied}")
 ```
+
+---
+
+<a id="delete_permanently-web"></a>
+### `delete_permanently()`
+
+```python
+client.delete_permanently(dedup_key: str) -> bool
+```
+
+Permanently deletes a single media item by its base64 deduplication key: moves the item to trash via Google Photos internal `XwAOJf` RPC and immediately empties the trash bin via `e2FP6c`.
+
+**Parameters:**
+
+| Parameter | Type | Description |
+| :--- | :--- | :--- |
+| `dedup_key` | `str` | Base64 deduplication key of the item. |
+
+**Returns:**
+
+* `bool`: `True` if the item was successfully moved to trash and purged, `False` otherwise.
+
+**Example:**
+
+```python
+success = client.delete_permanently("CAESJD...dedup_key")
+print("Permanently deleted from Google Photos:", success)
+```
+
+---
+
+### `delete_permanently_async()`
+
+```python
+await client.delete_permanently_async(dedup_key: str, timeout: Optional[float] = None) -> bool
+```
+
+Asynchronously permanently deletes a media item via native Go Goroutine without blocking Python's event loop.
 
 ---
 

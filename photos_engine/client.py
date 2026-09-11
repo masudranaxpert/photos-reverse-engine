@@ -308,6 +308,10 @@ def _setup_async_lib(lib: ctypes.CDLL) -> None:
         lib.GPWC_GetStorageQuota_Async.argtypes = [c_ull, c_ll, c_i64]
         lib.GPWC_GetStorageQuota_Async.restype = None
 
+    if hasattr(lib, "GPWC_DeletePermanently_Async"):
+        lib.GPWC_DeletePermanently_Async.argtypes = [c_ull, c_char_p, c_ll, c_i64]
+        lib.GPWC_DeletePermanently_Async.restype = None
+
     lib._gpmc_async_initialized = True
 
 
@@ -767,6 +771,10 @@ class NativeWebClient:
             self._lib.GPWC_ResetAccount.argtypes = [c_ull, ctypes.c_longlong]
             self._lib.GPWC_ResetAccount.restype = c_void_p
 
+        if hasattr(self._lib, "GPWC_DeletePermanently"):
+            self._lib.GPWC_DeletePermanently.argtypes = [c_ull, c_char_p]
+            self._lib.GPWC_DeletePermanently.restype = c_void_p
+
         self._lib.GPMC_FreeString.argtypes = [c_void_p]
         self._lib.GPMC_FreeString.restype = None
 
@@ -997,6 +1005,16 @@ class NativeWebClient:
             trash_emptied=data.get("trash_emptied", False),
             message=data.get("message", ""),
         )
+
+    def delete_permanently(self, dedup_key: str) -> bool:
+        """Permanently delete a media item from web account: moves to trash via XwAOJf and empties trash via e2FP6c."""
+        data = self._call(self._lib.GPWC_DeletePermanently, dedup_key.encode("utf-8"))
+        return bool(data.get("success", False))
+
+    async def delete_permanently_async(self, dedup_key: str, timeout: Optional[float] = None) -> bool:
+        """Permanently delete a media item asynchronously via native Go Goroutine."""
+        res = await self._call_async(self._lib.GPWC_DeletePermanently_Async, dedup_key.encode("utf-8"), timeout=timeout)
+        return bool(res.get("success", False))
 
 
     @classmethod

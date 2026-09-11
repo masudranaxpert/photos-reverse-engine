@@ -95,6 +95,10 @@ else:
 # 9. Complete Account Library Reset / Wipe
 reset_res = web_client.reset_account()
 print(f"Account Reset: {reset_res.total_deleted} items removed, trash emptied: {reset_res.trash_emptied}")
+
+# 10. Permanently Delete Individual Item (Moves to trash & empties trash)
+deleted = web_client.delete_permanently("CAESJD...dedup_key")
+print("Permanently deleted:", deleted)
 ```
 
 ### 4. Native Async Python Usage (Non-blocking Go Goroutines)
@@ -125,6 +129,10 @@ async def main():
     # 4. Native async Storage Quota check
     quota = await client.get_storage_quota_async()
     print(f"Used: {quota.used_display} / {quota.total_display}")
+
+    # 5. Native async Permanent Item Deletion
+    deleted = await client.delete_permanently_async("CAESJD...dedup_key")
+    print("Deleted async:", deleted)
 
     client.close()
 
