@@ -20,7 +20,7 @@ def _utc_now_naive() -> datetime:
 async def get_cached_stream(media_key: str) -> Optional[Dict[str, Any]]:
     """Retrieve non-expired parsed stream and manifest data for media_key."""
     now = _utc_now_naive()
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(StreamCache).where(
             StreamCache.media_key == media_key,
             StreamCache.expires_at > now,
@@ -54,7 +54,7 @@ async def get_cached_stream(media_key: str) -> Optional[Dict[str, Any]]:
 async def is_stream_cached(media_key: str) -> bool:
     """Quickly check if an unexpired stream cache entry exists for media_key."""
     now = _utc_now_naive()
-    async with get_db() as db:
+    async with get_db(write=False) as db:
         stmt = select(func.count(StreamCache.id)).where(
             StreamCache.media_key == media_key,
             StreamCache.expires_at > now,

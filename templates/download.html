@@ -393,11 +393,11 @@
   // Remove the URL parameter from the address bar without refreshing the page
   window.history.replaceState({}, document.title, window.location.pathname);
 
-  // Processing pages: poll /api/download/{token} every 2.5s with a strict 10s timeout
+  // Processing pages: poll /api/download/{token} every 2.5s with a 60s timeout
   const isProcessing = {{ 'true' if status == 'processing' or (status == 'ready' and not download_url) else 'false' }};
   if (isProcessing) {
     const startTime = Date.now();
-    const TIMEOUT_MS = 10000;
+    const TIMEOUT_MS = 60000;
 
     const pollTimer = setInterval(async () => {
       const elapsed = Date.now() - startTime;

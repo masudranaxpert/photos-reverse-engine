@@ -14,7 +14,12 @@ from photos_engine import PhotosEngineClient
 from app.database import get_db
 from app.models import MobileAccount
 
+import time
+
 logger = logging.getLogger(__name__)
+
+# In-memory account cache: (MobileAccount, monotonic_expiry)
+_account_cache: tuple[Optional[MobileAccount], float] = (None, 0.0)
 
 
 def extract_email_from_auth_data(auth_data: str) -> str:
@@ -29,8 +34,14 @@ def extract_email_from_auth_data(auth_data: str) -> str:
 
 
 async def get_active_mobile_account(account_id: Optional[int] = None) -> Optional[MobileAccount]:
-    """Fetch active mobile account from SQLite mobile_accounts table via SQLAlchemy ORM."""
-    async with get_db() as db:
+    """Fetch active mobile account with 30s in-memory cache and read-only DB query."""
+    global _account_cache
+    if account_id is None:
+        row, exp = _account_cache
+        if row is not None and time.monotonic() < exp:
+            return row
+
+    async with get_db(write=False) as db:
         if account_id:
             stmt = select(MobileAccount).where(
                 MobileAccount.id == account_id,
@@ -46,7 +57,10 @@ async def get_active_mobile_account(account_id: Optional[int] = None) -> Optiona
             .limit(1)
         )
         res = await db.execute(stmt)
-        return res.scalar_one_or_none()
+        account = res.scalar_one_or_none()
+        if account:
+            _account_cache = (account, time.monotonic() + 30.0)
+        return account
 
 
 # In-memory client cache: account_id -> (auth_data, PhotosEngineClient)
@@ -54,7 +68,9 @@ _client_cache: dict[int, tuple[str, PhotosEngineClient]] = {}
 
 
 def invalidate_mobile_client_cache(account_id: Optional[int] = None) -> None:
-    """Evict cached PhotosEngineClient instances when credentials change."""
+    """Evict cached PhotosEngineClient and account instances when credentials change."""
+    global _account_cache
+    _account_cache = (None, 0.0)
     if account_id is not None:
         _client_cache.pop(account_id, None)
     else:

@@ -127,7 +127,7 @@ async def _resolve_token(token: str) -> tuple[DriveRef | None, PermanentItem | N
 
 
 async def _get_download_url(media_key: str, source: str) -> str | None:
-    """Try cache first, then resolve via appropriate client."""
+    """Try cache first, then resolve via appropriate client with timeout."""
     cached = await get_cached_url(media_key)
     if cached and cached.get("download_url"):
         return cached["download_url"]
@@ -137,7 +137,7 @@ async def _get_download_url(media_key: str, source: str) -> str | None:
         try:
             from app.services.mobile_service import get_mobile_client
             client, _ = await get_mobile_client()
-            info = await client.get_download_url_async(media_key)
+            info = await client.get_download_url_async(media_key, timeout=8.0)
             if info.download_url:
                 await set_cached_url(media_key, info.download_url, dedup_key=getattr(info, "dedup_key", None), source="mobile")
                 return info.download_url
@@ -146,40 +146,70 @@ async def _get_download_url(media_key: str, source: str) -> str | None:
     else:
         # Use web client for temp items
         try:
-            from app.services.web_service import get_web_client, sync_session_blob
-            client, session_id = await get_web_client()
-            info = await client.get_download_url_async(media_key)
-            await sync_session_blob(session_id, client)
-            client.close()
-            if info.download_url:
-                await set_cached_url(media_key, info.download_url, dedup_key=getattr(info, "dedup_key", None), source="web")
-                return info.download_url
+            from app.services.web_service import get_web_client
+            client, _ = await get_web_client()
+            try:
+                info = await client.get_download_url_async(media_key, timeout=8.0)
+                if info.download_url:
+                    await set_cached_url(media_key, info.download_url, dedup_key=getattr(info, "dedup_key", None), source="web")
+                    return info.download_url
+            finally:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, client.close)
         except Exception as exc:
             logger.warning("[download] Web URL resolve failed for %s: %s", media_key, exc)
 
     return None
 
 
-async def _record_unique_visit(request: Request, response: Response, drive_ref_id: int, token: str) -> None:
-    """Record a visitor view atomically if no 24-hour deduplication cookie is present."""
+async def _increment_visitor_count(drive_ref_id: int, token: str) -> None:
+    """Increment visitor count asynchronously in background without blocking response."""
+    try:
+        async with get_db() as db:
+            await db.execute(
+                update(DriveRef)
+                .where(DriveRef.id == drive_ref_id)
+                .values(visitor_count=DriveRef.visitor_count + 1)
+            )
+    except Exception as exc:
+        logger.warning("[download] Failed to update visitor count for %s: %s", token, exc)
+
+
+def _record_unique_visit(
+    request: Request,
+    response: Response,
+    drive_ref_id: int,
+    token: str,
+    background_tasks: BackgroundTasks | None = None,
+) -> None:
+    """Record visitor view if no 24h cookie present, offloading DB write to background."""
     cookie_key = f"viewed_{token}"
     if not request.cookies.get(cookie_key):
-        try:
-            async with get_db() as db:
-                await db.execute(
-                    update(DriveRef)
-                    .where(DriveRef.id == drive_ref_id)
-                    .values(visitor_count=DriveRef.visitor_count + 1)
-                )
-            response.set_cookie(
-                key=cookie_key,
-                value="1",
-                max_age=86400,
-                httponly=True,
-                samesite="lax",
+        if background_tasks is not None:
+            background_tasks.add_task(_increment_visitor_count, drive_ref_id, token)
+        else:
+            asyncio.create_task(_increment_visitor_count, drive_ref_id, token)
+        response.set_cookie(
+            key=cookie_key,
+            value="1",
+            max_age=86400,
+            httponly=True,
+            samesite="lax",
+        )
+
+
+async def _update_manifest_and_fetch_stream(perm_id: int, media_key: str, drive_ref_id: int, check_time: datetime) -> None:
+    """Update last_manifest_check timestamp and fetch DASH manifest in background."""
+    try:
+        async with get_db() as db:
+            await db.execute(
+                update(PermanentItem)
+                .where(PermanentItem.id == perm_id)
+                .values(last_manifest_check=check_time)
             )
-        except Exception as exc:
-            logger.warning("[download] Failed to update visitor count for %s: %s", token, exc)
+        await fetch_and_cache_stream(media_key, drive_ref_id)
+    except Exception as exc:
+        logger.warning("[download] Manifest background update failed for %s: %s", media_key, exc)
 
 
 @router.get("/api/download/{token}", response_model=DownloadTokenResponse)
@@ -264,7 +294,7 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
 
     # White-label: file imported via an API key → show that key's name
     if not brand_name and drive_ref.api_key_id:
-        async with get_db() as db:
+        async with get_db(write=False) as db:
             res = await db.execute(select(ApiKey).where(ApiKey.id == drive_ref.api_key_id))
             importer_key = res.scalar_one_or_none()
         if importer_key and importer_key.is_active:
@@ -293,13 +323,7 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
             now = datetime.now(timezone.utc).replace(tzinfo=None)
             last_chk = perm.last_manifest_check.replace(tzinfo=None) if perm.last_manifest_check else None
             if last_chk is None or (now - last_chk).total_seconds() >= STREAM_MANIFEST_THROTTLE_SECONDS:
-                async with get_db() as db:
-                    await db.execute(
-                        update(PermanentItem)
-                        .where(PermanentItem.id == perm.id)
-                        .values(last_manifest_check=now)
-                    )
-                background_tasks.add_task(fetch_and_cache_stream, perm.media_key, drive_ref.id)
+                background_tasks.add_task(_update_manifest_and_fetch_stream, perm.id, perm.media_key, drive_ref.id, now)
 
         context.update({
             "status": "ready" if download_url else "processing",
@@ -320,7 +344,7 @@ async def download_page(request: Request, token: str, background_tasks: Backgrou
             context["status"] = "failed"
 
     response = templates.TemplateResponse(request=request, name="download.html", context=context)
-    await _record_unique_visit(request, response, drive_ref.id, token)
+    _record_unique_visit(request, response, drive_ref.id, token, background_tasks=background_tasks)
     return response
 
 
@@ -344,7 +368,7 @@ async def player_page(request: Request, token: str):
         "filename": drive_ref.filename,
     }
     response = templates.TemplateResponse(request=request, name="player.html", context=context)
-    await _record_unique_visit(request, response, drive_ref.id, token)
+    _record_unique_visit(request, response, drive_ref.id, token)
     return response
 
 

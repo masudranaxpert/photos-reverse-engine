@@ -12,7 +12,12 @@ from sqlalchemy import select
 from app.database import get_db
 from app.models import SystemSetting
 
+import time
+
 logger = logging.getLogger("photos_engine.drive_api")
+
+# In-memory API key cache: (key_str, monotonic_expiry)
+_api_key_cache: tuple[Optional[str], float] = (None, 0.0)
 
 
 @dataclass
@@ -26,14 +31,21 @@ class DriveFileMetadata:
 
 
 async def get_drive_api_key() -> Optional[str]:
-    """Retrieve Google Drive API key strictly from system_settings table."""
+    """Retrieve Google Drive API key with 60s in-memory cache and read-only query."""
+    global _api_key_cache
+    key, exp = _api_key_cache
+    if key is not None and time.monotonic() < exp:
+        return key
+
     try:
-        async with get_db() as db:
+        async with get_db(write=False) as db:
             stmt = select(SystemSetting).where(SystemSetting.key == "google_drive_api_key")
             res = await db.execute(stmt)
             setting = res.scalar_one_or_none()
             if setting and setting.value and setting.value.strip():
-                return setting.value.strip()
+                clean = setting.value.strip()
+                _api_key_cache = (clean, time.monotonic() + 60.0)
+                return clean
     except Exception as exc:
         logger.error("[drive_api] Failed to read API key from DB: %s", exc)
 
@@ -42,6 +54,8 @@ async def get_drive_api_key() -> Optional[str]:
 
 async def set_drive_api_key(api_key: str) -> None:
     """Save updated Google Drive API key to system_settings."""
+    global _api_key_cache
+    _api_key_cache = (None, 0.0)
     clean_key = api_key.strip()
     async with get_db() as db:
         stmt = select(SystemSetting).where(SystemSetting.key == "google_drive_api_key")

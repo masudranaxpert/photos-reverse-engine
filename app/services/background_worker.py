@@ -547,6 +547,20 @@ async def enqueue_promote_job() -> int:
     return 0
 
 
+async def _cleanup_temp_web_item(dedup_key: str, media_key: str) -> None:
+    """Non-blocking background cleanup of temporary web items after promotion."""
+    try:
+        web_client, _ = await get_web_client()
+        try:
+            await web_client.delete_permanently_async(dedup_key, timeout=8.0)
+            logger.info("[sweep/promote] Cleaned up temporary item media_key=%s (dedup=%s) from web account", media_key, dedup_key)
+        finally:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, web_client.close)
+    except Exception as exc:
+        logger.warning("[sweep/promote] Non-fatal temp cleanup warning for %s: %s", media_key, exc)
+
+
 async def run_pipeline_sweep_logic(wait: bool = False) -> dict:
     """Sweep queued drive imports, generate share links, and promote ready items with single-flight lock."""
     if not wait and _pipeline_sweep_lock.locked():
@@ -563,19 +577,31 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
         queued_refs = (await db.execute(
             # Feed up to semaphore capacity; skip already in-flight rows (status=importing).
             select(DriveRef)
-            .where(DriveRef.file_status == "queued")
+            .where(
+                DriveRef.file_status == "queued",
+                DriveRef.id.notin_(_active_import_ref_ids),
+            )
             .order_by(DriveRef.id.asc())
             .limit(_import_sem_capacity)
         )).scalars().all()
 
     for qref in queued_refs:
         try:
-            await queue_drive_import(
-                drive_ref_id=qref.id,
-                drive_id=qref.drive_id,
-                mime_type="video/*",
-                file_size=qref.file_size,
-                filename=qref.filename,
+            async with get_db() as db:
+                await db.execute(
+                    update(DriveRef)
+                    .where(DriveRef.id == qref.id, DriveRef.file_status == "queued")
+                    .values(file_status="importing")
+                )
+            _active_import_ref_ids.add(qref.id)
+            asyncio.create_task(
+                _execute_drive_import_async(
+                    qref.id,
+                    qref.drive_id,
+                    qref.mime_type or "video/*",
+                    qref.file_size,
+                    qref.filename or qref.drive_id,
+                )
             )
         except Exception as exc:
             logger.warning("[sweep/drive_import] Error queueing ref_id=%d: %s", qref.id, exc)
@@ -591,7 +617,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
             client, _ = await get_web_client()
             for it in pending_share:
                 try:
-                    link = await client.create_share_link_async(it.media_key)
+                    link = await client.create_share_link_async(it.media_key, timeout=10.0)
                     async with get_db() as db:
                         await db.execute(
                             update(TempImport)
@@ -606,7 +632,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
             logger.error("[sweep/share_link] Client session error: %s", exc)
         finally:
             if client:
-                loop = asyncio.get_event_loop()
+                loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, client.close)
 
     now = _utc_now()
@@ -623,7 +649,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
             mobile_client, mobile_account = await get_mobile_client()
             for item in pending_promote:
                 try:
-                    result = await mobile_client.import_share_url_async(item.share_url)
+                    result = await mobile_client.import_share_url_async(item.share_url, timeout=15.0)
                     import_result = result.get("import_result") if isinstance(result, dict) else result
                     status = (
                         import_result.get("status") if isinstance(import_result, dict)
@@ -669,17 +695,8 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                                     await db.execute(delete(TempImport).where(TempImport.id == item.id))
                                 continue
 
-                        try:
-                            web_client, _ = await get_web_client()
-                            try:
-                                if item.dedup_key:
-                                    await web_client.delete_permanently_async(item.dedup_key)
-                                logger.info("[sweep/promote] Cleaned up temporary item media_key=%s (dedup=%s) from web account", item.media_key, item.dedup_key)
-                            finally:
-                                loop = asyncio.get_event_loop()
-                                await loop.run_in_executor(None, web_client.close)
-                        except Exception as exc:
-                            logger.warning("[sweep/promote] Non-fatal temp cleanup warning: %s", exc)
+                        if item.dedup_key:
+                            asyncio.create_task(_cleanup_temp_web_item(item.dedup_key, item.media_key))
 
                         promoted += 1
                         logger.info(
