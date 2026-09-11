@@ -1,7 +1,4 @@
-"""
-Background job runner — starts as an asyncio task in FastAPI lifespan.
-All jobs are persisted in background_jobs table for dashboard visibility.
-"""
+"""Background worker and scheduled task handlers."""
 import asyncio
 import json
 import logging
@@ -18,40 +15,56 @@ from app.services.web_service import get_web_client
 
 logger = logging.getLogger("photos_engine.worker")
 
+
 def _utc_now() -> datetime:
     """Return naive UTC datetime for SQLite compatibility."""
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
-# ──────────────────────────── Recurring job handlers ────────────────────────────
-
-
 async def run_cookies_check_logic() -> dict:
-    """Validate all active web sessions and log + record status."""
+    """Validate web sessions via quota ping, rotate cookies in blob, and update status."""
     from app.models import WebSession
+    from app.services.web_service import sync_session_blob
     from photos_engine import NativeWebClient
 
     async with get_db() as db:
-        stmt = select(WebSession).where(WebSession.is_active.is_(True))
-        res = await db.execute(stmt)
+        res = await db.execute(select(WebSession))
         sessions = res.scalars().all()
 
     results = {}
     for sess in sessions:
+        client = None
         try:
-            status = await NativeWebClient.check_status_async(sess.raw_cookies)
-            results[sess.session_id] = {
-                "valid": status.valid,
-                "account": status.account,
-                "message": status.message,
-            }
-            if not status.valid:
-                logger.warning(
-                    "[cookies_check] Session '%s' (account=%s) INVALID: %s",
-                    sess.session_id, sess.account_email, status.message,
+            client = NativeWebClient.from_blob(sess.session_blob)
+            quota = await asyncio.get_event_loop().run_in_executor(None, client.get_storage_quota)
+            await sync_session_blob(sess.session_id, client)
+
+            results[sess.session_id] = {"valid": True, "account": sess.account_email, "usage": quota.usage_text}
+            logger.info(
+                "[cookies_check] Session '%s' OK — PSIDTS rotated & blob synced. Quota: %s",
+                sess.session_id, quota.usage_text,
+            )
+            async with get_db() as db2:
+                await db2.execute(
+                    update(WebSession)
+                    .where(WebSession.session_id == sess.session_id)
+                    .values(is_active=True)
                 )
-                async with get_db() as db:
-                    await db.execute(
+            from app.services.notice_service import resolve_notice
+            await resolve_notice(f"cookies_{sess.session_id}")
+
+        except Exception as exc:
+            err_msg = str(exc)
+            is_auth_expired = any(k in err_msg.lower() for k in (
+                "302", "login", "expired", "unauthorized",
+                "redirected to login", "returned status 302",
+            ))
+            results[sess.session_id] = {"valid": False, "error": err_msg}
+
+            if is_auth_expired:
+                logger.warning("[cookies_check] Session '%s' EXPIRED: %s", sess.session_id, err_msg)
+                async with get_db() as db2:
+                    await db2.execute(
                         update(WebSession)
                         .where(WebSession.session_id == sess.session_id)
                         .values(is_active=False)
@@ -59,32 +72,22 @@ async def run_cookies_check_logic() -> dict:
                 from app.services.notice_service import record_notice
                 await record_notice(
                     title="Instant Session Expired",
-                    message=f"Instant Session '{sess.name}' ({sess.account_email or 'No email'}) is invalid: {status.message}. Please update cookies in dashboard.",
+                    message=f"Instant Session '{sess.name}' ({sess.account_email or 'No email'}) cookies expired. Please export fresh cookies and update in dashboard.",
                     level="error",
                     source=f"cookies_{sess.session_id}",
                 )
             else:
-                logger.info("[cookies_check] Session '%s' OK", sess.session_id)
-                from app.services.notice_service import resolve_notice
-                await resolve_notice(f"cookies_{sess.session_id}")
-        except Exception as exc:
-            results[sess.session_id] = {"valid": False, "error": str(exc)}
-            logger.error("[cookies_check] Session '%s' check error: %s", sess.session_id, exc)
-            async with get_db() as db:
-                await db.execute(
-                    update(WebSession)
-                    .where(WebSession.session_id == sess.session_id)
-                    .values(is_active=False)
+                logger.error(
+                    "[cookies_check] Session '%s' transient error (session kept alive): %s",
+                    sess.session_id, err_msg,
                 )
-            from app.services.notice_service import record_notice
-            await record_notice(
-                title="Cookie Check Error",
-                message=f"Session '{sess.name}': {exc}",
-                level="error",
-                source=f"cookies_{sess.session_id}",
-            )
+        finally:
+            if client:
+                try:
+                    client.close()
+                except Exception:
+                    pass
 
-    # Update global gate — imports run only when at least one session is valid.
     global _web_cookies_ok
     any_valid = any(v.get("valid") for v in results.values())
     if any_valid:
@@ -104,22 +107,21 @@ async def run_cookies_check_logic() -> dict:
 
 
 async def run_cache_cleanup_logic() -> dict:
-    """Periodic task: delete expired download_cache entries."""
+    """Delete expired download_cache entries."""
     from app.services.cache_service import cleanup_expired_cache
     deleted = await cleanup_expired_cache()
     return {"deleted": deleted}
 
 
 async def run_stream_cache_cleanup_logic() -> dict:
-    """Periodic task: delete expired stream_cache entries (20-minute validity)."""
+    """Delete expired stream_cache entries."""
     from app.services.stream_cache_service import cleanup_expired_stream_cache
     deleted = await cleanup_expired_stream_cache()
     return {"deleted": deleted}
 
 
-
 async def run_daily_cleanup_logic() -> dict:
-    """Daily task: cleans temp items older than 24h to prevent storage buildup."""
+    """Purge temporary imports older than 24h from Google Photos and DB."""
     cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)
     freed = 0
     deleted_count = 0
@@ -194,11 +196,8 @@ async def run_daily_cleanup_logic() -> dict:
     return {"deleted_count": deleted_count, "freed_bytes": freed}
 
 
-# ──────────────────────────── Job triggering helpers ────────────────────────────
-
-
 async def trigger_pipeline_sweep() -> None:
-    """Trigger recurring pipeline_sweep to run immediately via APScheduler or DB flag."""
+    """Trigger recurring pipeline_sweep immediately."""
     try:
         from app.services.scheduler import trigger_job_now
         triggered = trigger_job_now("pipeline_sweep")
@@ -216,29 +215,20 @@ async def trigger_pipeline_sweep() -> None:
 
 
 async def enqueue_share_link_job() -> int:
-    """Trigger pipeline_sweep to process new imports without creating duplicate job rows."""
+    """Trigger pipeline_sweep to process new imports."""
     await trigger_pipeline_sweep()
     return 0
 
 
-# Semaphore controls max concurrent Drive→Web staging imports.
-# Slot is held only for the Drive→TempImport write phase (not the sweep).
-# Capacity is read from SystemSetting 'max_concurrent_imports' at each import start.
 _import_sem: asyncio.Semaphore = asyncio.Semaphore(1)
-_import_sem_capacity: int = 1  # tracks current semaphore size for comparison
-# Prevents concurrent sweeps from racing to promote the same TempImport row.
+_import_sem_capacity: int = 1
 _promote_lock: asyncio.Lock = asyncio.Lock()
-
-# Global gate: False when all web sessions are invalid; imports pause until cookies restored.
 _web_cookies_ok: bool = True
 _active_import_ref_ids: set[int] = set()
 
 
 async def auto_requeue_error_imports(force: bool = False) -> int:
-    """
-    Requeue retryable error media files and restart imports.
-    Skips permanently dead files ('unsupported', 'not_found') and items already active in flight.
-    """
+    """Requeue retryable error imports."""
     global _web_cookies_ok
     if not _web_cookies_ok and not force:
         logger.debug("[auto_requeue] Web cookies invalid — skipping auto-requeue until cookies restored.")
@@ -290,7 +280,7 @@ async def auto_requeue_error_imports(force: bool = False) -> int:
 
 
 async def mark_cookies_valid_and_resume() -> int:
-    """Mark cookies ok, open gate, and auto-requeue deferred/error imports."""
+    """Open import gate and requeue deferred imports."""
     global _web_cookies_ok
     was_down = not _web_cookies_ok
     _web_cookies_ok = True
@@ -304,7 +294,7 @@ async def mark_cookies_valid_and_resume() -> int:
 
 
 async def _get_import_concurrency() -> int:
-    """Read max_concurrent_imports from SystemSetting; fall back to 1."""
+    """Read max_concurrent_imports from settings, defaulting to 1."""
     try:
         async with get_db() as db:
             row = await db.get(SystemSetting, "max_concurrent_imports")
@@ -316,11 +306,10 @@ async def _get_import_concurrency() -> int:
 
 
 async def _refresh_import_semaphore() -> asyncio.Semaphore:
-    """Return a semaphore sized to the current setting, recreating only when capacity changes."""
+    """Resize import semaphore if max_concurrent_imports changed."""
     global _import_sem, _import_sem_capacity
     desired = await _get_import_concurrency()
     if desired != _import_sem_capacity:
-        # Recreate only when admin changes the value; existing waiters stay on old sem.
         _import_sem = asyncio.Semaphore(desired)
         _import_sem_capacity = desired
         logger.info("[drive_import] Import semaphore resized to %d concurrent slots", desired)
@@ -334,7 +323,7 @@ async def queue_drive_import(
     file_size: Optional[int] = None,
     filename: Optional[str] = None,
 ) -> None:
-    """Queue and asynchronously execute Drive file import into Google Photos."""
+    """Queue background Drive import into Google Photos."""
     if drive_ref_id in _active_import_ref_ids:
         logger.debug("[drive_import] Ref ID %d already active — skipping duplicate queue.", drive_ref_id)
         return
@@ -351,20 +340,18 @@ async def _execute_drive_import_async(
     file_size: Optional[int] = None,
     filename: Optional[str] = None,
 ) -> bool:
-    """Import Google Drive file into Google Photos, handle quota recovery, and update DriveRef + TempImport."""
+    """Import Drive file to Photos, handle quota limits, and record TempImport."""
     from app.services.web_service import get_web_client, sync_session_blob
     from app.services.quota_service import free_space_from_temp
     from app.services.notice_service import record_notice
-    global _web_cookies_ok  # may be set to False on cookie failure
+    global _web_cookies_ok
 
     try:
-        # Pause imports when all web sessions are invalid (cookies expired).
         if not _web_cookies_ok:
             logger.warning(
                 "[drive_import] Import gate CLOSED (cookies invalid) — skipping drive_id=%s. Will retry when cookies restored.",
                 drive_id,
             )
-            # Mark as error so requeue can pick it up after cookies are refreshed.
             async with get_db() as db:
                 await db.execute(
                     update(DriveRef)
@@ -376,9 +363,6 @@ async def _execute_drive_import_async(
         sem = await _refresh_import_semaphore()
         logger.info("[drive_import] Waiting for import slot (cap=%d): drive_id=%s (ref_id=%d)", _import_sem_capacity, drive_id, drive_ref_id)
 
-        # Semaphore covers ONLY the Drive→Web staging + TempImport write.
-        # Pipeline sweep runs outside to avoid blocking the next import unnecessarily
-        # (transcode can take minutes; holding the slot that long starves the queue).
         media_key_out: str | None = None
         dedup_key_out: str | None = None
 
@@ -402,7 +386,6 @@ async def _execute_drive_import_async(
         try:
             client, session_id = await get_web_client()
 
-            # Pre-check available staging space on Web account; sweep & promote existing items if space is low
             try:
                 quota = client.get_storage_quota()
                 available_bytes = quota.total_bytes - quota.used_bytes
@@ -429,7 +412,6 @@ async def _execute_drive_import_async(
                         "[drive_import] Quota limit encountered for drive_id=%s (size=%s). Sweeping pipeline...",
                         drive_id, file_size,
                     )
-                    # First attempt to promote any ready in-flight items to free space
                     await run_pipeline_sweep_logic()
                     try:
                         import_res = await client.import_from_drive_async(
@@ -439,7 +421,6 @@ async def _execute_drive_import_async(
                         )
                         await sync_session_blob(session_id, client)
                     except Exception as retry_exc:
-                        # If still full, evict stale items older than 1 hour
                         freed = await free_space_from_temp(needed_bytes, client)
                         if freed > 0:
                             import_res = await client.import_from_drive_async(
@@ -476,14 +457,12 @@ async def _execute_drive_import_async(
                         media_key=media_key_out,
                         dedup_key=dedup_key_out or None,
                     ))
-            # Slot released here — next import can enter staging immediately.
 
         except Exception as exc:
             logger.error("[drive_import] Background import failed for drive_id=%s: %s", drive_id, exc)
             internal_msg = str(exc)
             file_desc = filename or drive_id
 
-            # Cookies/service offline: mark error (not deleted) so requeue picks up after fix.
             if any(k in internal_msg.lower() for k in ("503", "302", "service temporarily unavailable", "cookies are expired", "session is expired", "instant session", "redirected to login", "unauthorized")):
                 _web_cookies_ok = False
                 logger.warning(
@@ -527,8 +506,6 @@ async def _execute_drive_import_async(
             if client:
                 client.close()
 
-        # Sweep runs OUTSIDE the semaphore — next import slot is already free.
-        # Transcode delay won't block subsequent imports.
         if media_key_out:
             try:
                 await run_pipeline_sweep_logic()
@@ -540,8 +517,6 @@ async def _execute_drive_import_async(
         _active_import_ref_ids.discard(drive_ref_id)
 
 
-
-
 async def enqueue_promote_job() -> int:
     """Trigger pipeline_sweep to promote items without creating duplicate job rows."""
     await trigger_pipeline_sweep()
@@ -549,8 +524,7 @@ async def enqueue_promote_job() -> int:
 
 
 async def run_pipeline_sweep_logic() -> dict:
-    """Core logic: sweep queued drive imports, generate share links, and promote ready items."""
-    # 0. Process any pending/queued Drive imports that haven't completed
+    """Sweep queued drive imports, generate share links, and promote ready items."""
     async with get_db() as db:
         queued_refs = (await db.execute(
             select(DriveRef).where(DriveRef.file_status == "queued").limit(5)
@@ -568,7 +542,6 @@ async def run_pipeline_sweep_logic() -> dict:
         except Exception as exc:
             logger.warning("[sweep/drive_import] Error queueing ref_id=%d: %s", qref.id, exc)
 
-    # 1. Share link generation — items not yet submitted to Photos
     async with get_db() as db:
         pending_share = (await db.execute(
             select(TempImport).where(TempImport.share_url.is_(None)).limit(20)
@@ -597,7 +570,6 @@ async def run_pipeline_sweep_logic() -> dict:
             if client:
                 client.close()
 
-    # 2. Promote scan — skip items still within their backoff window
     now = _utc_now()
     async with get_db() as db:
         pending_promote = (await db.execute(
@@ -625,7 +597,6 @@ async def run_pipeline_sweep_logic() -> dict:
                     ) or []
 
                     if status == 1:
-                        # Google still transcoding — set 3-min backoff, skip until then
                         retry_at = _utc_now() + timedelta(minutes=3)
                         async with get_db() as db:
                             await db.execute(
@@ -640,9 +611,6 @@ async def run_pipeline_sweep_logic() -> dict:
                         continue
 
                     if status == 2:
-                        # Use new_keys[0] if available; fall back to original media_key.
-                        # Google Photos occasionally returns status=2 with an empty new_keys list
-                        # when the item was already in the target library — treat as success.
                         permanent_key = new_keys[0] if new_keys else item.media_key
                         async with _promote_lock:
                             try:
@@ -654,7 +622,6 @@ async def run_pipeline_sweep_logic() -> dict:
                                     ))
                                     await db.execute(delete(TempImport).where(TempImport.id == item.id))
                             except IntegrityError:
-                                # Another concurrent sweep already promoted this item — just clean up TempImport.
                                 logger.info(
                                     "[sweep/promote] media_key=%s already promoted by concurrent sweep — removing temp row",
                                     item.media_key,
@@ -663,7 +630,6 @@ async def run_pipeline_sweep_logic() -> dict:
                                     await db.execute(delete(TempImport).where(TempImport.id == item.id))
                                 continue
 
-                        # Clean up temporary item from source Web Photos account inline
                         try:
                             web_client, _ = await get_web_client()
                             try:
@@ -682,7 +648,6 @@ async def run_pipeline_sweep_logic() -> dict:
                         )
                         continue
 
-                    # Unknown status — set backoff to avoid tight retry loop
                     retry_at = _utc_now() + timedelta(minutes=5)
                     async with get_db() as db:
                         await db.execute(

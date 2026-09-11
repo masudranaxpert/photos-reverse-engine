@@ -149,6 +149,18 @@ async def get_current_admin(
         bearer_val = credentials.credentials.strip()
         if bearer_val.startswith("gpmc_") or len(bearer_val.split(".")) != 3:
             candidate_key = bearer_val
+    else:
+        hdr_key = request.headers.get("X-API-Key")
+        query_key = request.query_params.get("api_key")
+        auth_hdr = request.headers.get("Authorization", "")
+        if hdr_key and hdr_key.strip():
+            candidate_key = hdr_key.strip()
+        elif query_key and query_key.strip():
+            candidate_key = query_key.strip()
+        elif auth_hdr.startswith("Bearer "):
+            bearer_val = auth_hdr[7:].strip()
+            if bearer_val.startswith("gpmc_") or len(bearer_val.split(".")) != 3:
+                candidate_key = bearer_val
 
     if candidate_key:
         async with get_db() as db:
@@ -196,6 +208,8 @@ async def get_current_admin(
     token = None
     if credentials and credentials.credentials:
         token = credentials.credentials.strip()
+    elif request.headers.get("Authorization", "").startswith("Bearer "):
+        token = request.headers.get("Authorization")[7:].strip()
     elif request.cookies.get("access_token"):
         token = request.cookies.get("access_token").strip()
     elif request.query_params.get("token"):
@@ -252,4 +266,14 @@ async def get_current_admin(
             "is_active": admin.is_active,
             "auth_type": "jwt",
         }
+
+
+async def is_authenticated_admin(request: Request) -> bool:
+    """Return True if request has valid admin credentials, False otherwise."""
+    try:
+        await get_current_admin(request)
+        return True
+    except Exception:
+        return False
+
 

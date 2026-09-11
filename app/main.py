@@ -20,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 from sqlalchemy import select
 
 from app.database import get_db, init_db
+from app.security import is_authenticated_admin
 from app.routers import api_keys, auth, media, mobile_client, web_client
 from app.routers import upload, download, jobs, settings, notices
 from app.services.cache_service import cleanup_expired_cache
@@ -90,7 +91,7 @@ app.include_router(notices.router)
 @app.get("/", tags=["Frontend"])
 async def dashboard_page(request: Request):
     """Render main management dashboard page (requires admin auth)."""
-    if not await is_request_authenticated_admin(request):
+    if not await is_authenticated_admin(request):
         return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse(request=request, name="index.html")
 
@@ -98,7 +99,7 @@ async def dashboard_page(request: Request):
 @app.get("/login", tags=["Frontend"])
 async def login_page(request: Request):
     """Render administrator login page (redirects to / if already logged in)."""
-    if await is_request_authenticated_admin(request):
+    if await is_authenticated_admin(request):
         return RedirectResponse(url="/", status_code=303)
     return templates.TemplateResponse(request=request, name="login.html")
 
@@ -106,7 +107,7 @@ async def login_page(request: Request):
 @app.get("/cached-urls", tags=["Frontend"])
 async def cached_urls_page(request: Request):
     """Render 30-min cached download URLs management page (requires admin auth)."""
-    if not await is_request_authenticated_admin(request):
+    if not await is_authenticated_admin(request):
         return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse(request=request, name="cached_urls.html")
 
@@ -114,7 +115,7 @@ async def cached_urls_page(request: Request):
 @app.get("/stream-cache", tags=["Frontend"])
 async def stream_cache_page(request: Request):
     """Render 20-min cached streaming URLs management page (requires admin auth)."""
-    if not await is_request_authenticated_admin(request):
+    if not await is_authenticated_admin(request):
         return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse(request=request, name="stream_cache.html")
 
@@ -122,7 +123,7 @@ async def stream_cache_page(request: Request):
 @app.get("/audit", tags=["Frontend"])
 async def audit_page(request: Request):
     """Render system audit log page (requires admin auth)."""
-    if not await is_request_authenticated_admin(request):
+    if not await is_authenticated_admin(request):
         return RedirectResponse(url="/login", status_code=303)
     return templates.TemplateResponse(request=request, name="audit.html")
 
@@ -147,72 +148,11 @@ async def health_check():
     }
 
 
-async def is_request_authenticated_admin(request: Request) -> bool:
-    """Check whether request carries valid admin credentials (cookie, header, or query param)."""
-    auth_header = request.headers.get("Authorization") or ""
-    candidate = None
-    if auth_header.startswith("Bearer "):
-        candidate = auth_header[7:].strip()
-
-    if not candidate:
-        candidate = request.headers.get("X-API-Key")
-
-    if not candidate:
-        candidate = request.cookies.get("access_token")
-
-    if not candidate:
-        candidate = request.query_params.get("token") or request.query_params.get("api_key")
-
-    if not candidate:
-        return False
-
-    candidate = candidate.strip()
-
-    # 1. Check API Key
-    try:
-        from app.models import ApiKey
-        async with get_db() as db:
-            stmt = select(ApiKey).where(ApiKey.key == candidate, ApiKey.is_active.is_(True))
-            key_obj = (await db.execute(stmt)).scalar_one_or_none()
-            if key_obj:
-                if key_obj.expires_at:
-                    now_utc = datetime.now(timezone.utc)
-                    exp_utc = (
-                        key_obj.expires_at.replace(tzinfo=timezone.utc)
-                        if key_obj.expires_at.tzinfo is None
-                        else key_obj.expires_at
-                    )
-                    if now_utc > exp_utc:
-                        return False
-                return True
-    except Exception:
-        pass
-
-    # 2. Check Admin JWT Token
-    try:
-        from app.security import jwt, SECRET_KEY, ALGORITHM
-        from app.models import Admin
-
-        payload = jwt.decode(candidate, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if not username:
-            return False
-
-        async with get_db() as db:
-            result = await db.execute(
-                select(Admin).where(Admin.username == username, Admin.is_active.is_(True))
-            )
-            admin = result.scalar_one_or_none()
-            return admin is not None
-    except Exception:
-        return False
-
-
 @app.get("/openapi.json", include_in_schema=False)
 async def openapi_endpoint(request: Request):
     """Dynamic OpenAPI schema: hides all endpoints except upload for unauthenticated visitors."""
     full_schema = app.openapi()
-    if await is_request_authenticated_admin(request):
+    if await is_authenticated_admin(request):
         return JSONResponse(full_schema)
 
     filtered_paths = {}

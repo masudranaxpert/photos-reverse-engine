@@ -81,38 +81,20 @@ async def _run_managed_job(
 
 # ────────────────────────── Scheduled Job Runners ──────────────────────────
 
-
-async def _job_pipeline_sweep() -> Dict[str, Any]:
-    from app.services.background_worker import run_pipeline_sweep_logic
-    return await run_pipeline_sweep_logic()
-
-
-async def _job_cookies_check() -> Dict[str, Any]:
-    from app.services.background_worker import run_cookies_check_logic
-    return await run_cookies_check_logic()
-
-
-async def _job_cache_cleanup() -> Dict[str, Any]:
-    from app.services.background_worker import run_cache_cleanup_logic
-    return await run_cache_cleanup_logic()
-
-
-async def _job_daily_cleanup() -> Dict[str, Any]:
-    from app.services.background_worker import run_daily_cleanup_logic
-    return await run_daily_cleanup_logic()
-
-
-async def _job_stream_cache_cleanup() -> Dict[str, Any]:
-    from app.services.background_worker import run_stream_cache_cleanup_logic
-    return await run_stream_cache_cleanup_logic()
-
+from app.services.background_worker import (
+    run_cache_cleanup_logic,
+    run_cookies_check_logic,
+    run_daily_cleanup_logic,
+    run_pipeline_sweep_logic,
+    run_stream_cache_cleanup_logic,
+)
 
 JOB_TASK_MAP = {
-    "pipeline_sweep": _job_pipeline_sweep,
-    "cookies_check": _job_cookies_check,
-    "cache_cleanup": _job_cache_cleanup,
-    "daily_cleanup": _job_daily_cleanup,
-    "stream_cache_cleanup": _job_stream_cache_cleanup,
+    "pipeline_sweep": run_pipeline_sweep_logic,
+    "cookies_check": run_cookies_check_logic,
+    "cache_cleanup": run_cache_cleanup_logic,
+    "daily_cleanup": run_daily_cleanup_logic,
+    "stream_cache_cleanup": run_stream_cache_cleanup_logic,
 }
 
 

@@ -70,23 +70,6 @@ async def init_db() -> None:
     """Initialize all ORM models and tables asynchronously using SQLAlchemy."""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Ensure schema migrations for existing databases
-        def _migrate(connection):
-            cur = connection.connection.cursor()
-            cur.execute("PRAGMA table_info(drive_refs)")
-            cols = [c[1] for c in cur.fetchall()]
-            if "error_message" not in cols:
-                cur.execute("ALTER TABLE drive_refs ADD COLUMN error_message TEXT")
-            if "api_key_id" not in cols:
-                cur.execute("ALTER TABLE drive_refs ADD COLUMN api_key_id INTEGER REFERENCES api_keys(id) ON DELETE SET NULL")
-                cur.execute("CREATE INDEX IF NOT EXISTS ix_drive_refs_api_key_id ON drive_refs(api_key_id)")
-            if "visitor_count" not in cols:
-                cur.execute("ALTER TABLE drive_refs ADD COLUMN visitor_count INTEGER NOT NULL DEFAULT 0")
-            cur.execute("PRAGMA table_info(permanent_items)")
-            perm_cols = [c[1] for c in cur.fetchall()]
-            if perm_cols and "last_manifest_check" not in perm_cols:
-                cur.execute("ALTER TABLE permanent_items ADD COLUMN last_manifest_check DATETIME")
-            cur.close()
-        await conn.run_sync(_migrate)
     logger.info("SQLAlchemy ORM tables initialized successfully in WAL mode.")
+
 

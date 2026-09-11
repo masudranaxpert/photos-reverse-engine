@@ -59,7 +59,6 @@ class WebSessionResponse(BaseModel):
 
 
 class WebSessionDetailResponse(WebSessionResponse):
-    raw_cookies: Optional[str] = None
     session_blob_json: Optional[str] = Field(
         None, description="Decoded pretty-printed JSON of the saved session state"
     )

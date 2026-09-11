@@ -66,6 +66,7 @@ async def create_web_session(
 
     client = None
     try:
+        # Build live session from pasted cookies; session_blob is the sole persistent store.
         client = NativeWebClient(cookies=raw_cookies)
         session_blob = client.export_session_blob()
     except Exception as exc:
@@ -79,7 +80,6 @@ async def create_web_session(
         session_id=session_id,
         name=req.name.strip(),
         account_email=account_email,
-        raw_cookies=raw_cookies,
         session_blob=session_blob,
         is_active=True,
     )
@@ -142,7 +142,6 @@ async def get_web_session(
         session_id=sess.session_id,
         name=sess.name,
         account_email=sess.account_email,
-        raw_cookies=sess.raw_cookies,
         session_blob_json=blob_json,
         session_blob_hex=sess.session_blob.hex() if sess.session_blob else None,
         is_active=sess.is_active,
@@ -186,7 +185,6 @@ async def update_web_session(
                 if client:
                     client.close()
 
-            sess.raw_cookies = raw_cookies
             sess.session_blob = blob
             sess.is_active = True
             if status.account:
@@ -247,47 +245,44 @@ async def check_session_status(
     session_id: str,
     current_admin: dict = Depends(get_current_admin),
 ):
-    """Verify live status of a stored session with Google Photos."""
-    async with get_db() as db:
-        stmt = select(WebSession).where(WebSession.session_id == session_id.strip())
-        res = await db.execute(stmt)
-        sess = res.scalar_one_or_none()
-
-    if not sess:
-        raise HTTPException(status_code=404, detail="Web session not found")
-
-    status = await NativeWebClient.check_status_async(sess.raw_cookies)
-
-    # Persist live validity to is_active in SQLite
-    async with get_db() as db:
-        await db.execute(
-            update(WebSession)
-            .where(WebSession.session_id == session_id.strip())
-            .values(is_active=status.valid)
-        )
-
-    if not status.valid:
-        from app.services.notice_service import record_notice
-        await record_notice(
-            title="Instant Session Expired",
-            message=f"Instant Session '{session_id}' ({sess.account_email or 'No email'}) cookies are invalid: {status.message}. Please update cookies in dashboard.",
-            level="error",
-            source=f"cookies_{session_id}",
-        )
-    else:
+    """Verify live status via blob — ping photos.google.com and rotate PSIDTS in one shot."""
+    import asyncio
+    client, target_sid = await get_web_client(session_id)
+    try:
+        quota = await asyncio.get_event_loop().run_in_executor(None, client.get_storage_quota)
+        await sync_session_blob(target_sid, client)
         from app.services.notice_service import resolve_notice
-        await resolve_notice(f"cookies_{session_id}")
+        await resolve_notice(f"cookies_{target_sid}")
         try:
             from app.services.background_worker import mark_cookies_valid_and_resume
             await mark_cookies_valid_and_resume()
         except Exception as exc:
             logger.warning("Could not auto-resume imports on session check: %s", exc)
-
-    return WebSessionStatusResponse(
-        valid=status.valid,
-        account=status.account,
-        message=status.message,
-    )
+        return WebSessionStatusResponse(
+            valid=True,
+            account=client.get_cookies().get("__Secure-1PSID") and session_id or None,
+            message=f"Session valid. Quota: {quota.usage_text}. Blob rotated & synced.",
+        )
+    except Exception as exc:
+        err_msg = str(exc)
+        is_expired = any(k in err_msg.lower() for k in ("302", "login", "expired", "unauthorized", "returned status 302"))
+        if is_expired:
+            async with get_db() as db:
+                await db.execute(
+                    update(WebSession)
+                    .where(WebSession.session_id == target_sid)
+                    .values(is_active=False)
+                )
+            from app.services.notice_service import record_notice
+            await record_notice(
+                title="Instant Session Expired",
+                message=f"Instant Session '{target_sid}' ({session_id}) cookies expired: {err_msg}. Please update cookies.",
+                level="error",
+                source=f"cookies_{target_sid}",
+            )
+        return WebSessionStatusResponse(valid=False, account=None, message=err_msg)
+    finally:
+        client.close()
 
 
 @router.get("/quota")

@@ -36,18 +36,16 @@ async def get_active_session_row(session_id: Optional[str] = None) -> Optional[W
 
 async def get_web_client(session_id: Optional[str] = None) -> Tuple[NativeWebClient, str]:
     """
-    Instantiate an active NativeWebClient from stored session blob or raw cookies.
-    Returns (client, session_id).
+    Restore an active NativeWebClient from the stored session_blob (single source of truth).
+    Returns (client, session_id). Raises HTTP 503/404 on failure.
     """
     session_row = await get_active_session_row(session_id)
     if not session_row:
         if session_id:
-            # A specific session was requested but doesn't exist / is inactive → 404
             raise HTTPException(
                 status_code=404,
                 detail=f"Session '{session_id}' not found or inactive",
             )
-        # No session requested and none active → service genuinely unavailable
         raise HTTPException(
             status_code=503,
             detail="Service is temporarily unavailable. Please try again in a few minutes.",
@@ -56,31 +54,12 @@ async def get_web_client(session_id: Optional[str] = None) -> Tuple[NativeWebCli
     target_session_id = session_row.session_id
     blob = session_row.session_blob
 
-    # Prefer restoring full live session from binary blob
-    if blob and len(blob) > 0:
-        try:
-            client = NativeWebClient.from_blob(blob)
-            return client, target_session_id
-        except Exception as exc:
-            logger.warning(
-                "Failed to restore session from blob for '%s': %s. Re-initializing from raw cookies.",
-                target_session_id,
-                exc,
-            )
-
-    # Fallback to initializing from raw cookies string
-    raw_cookies = session_row.raw_cookies or ""
-    if not raw_cookies.strip():
-        raise HTTPException(
-            status_code=400,
-            detail=f"Session '{target_session_id}' has neither valid blob nor raw cookies.",
-        )
-
     try:
-        client = NativeWebClient(cookies=raw_cookies)
+        client = NativeWebClient.from_blob(blob)
+        return client, target_session_id
     except Exception as exc:
         err_msg = str(exc)
-        logger.error("Failed to initialize NativeWebClient for session '%s': %s", target_session_id, err_msg)
+        logger.error("Failed to restore session '%s' from blob: %s", target_session_id, err_msg)
         if any(k in err_msg.lower() for k in ("302", "login", "expired", "unauthorized")):
             async with get_db() as db:
                 await db.execute(
@@ -91,7 +70,7 @@ async def get_web_client(session_id: Optional[str] = None) -> Tuple[NativeWebCli
             from app.services.notice_service import record_notice
             await record_notice(
                 title="Instant Session Expired",
-                message=f"Instant Session '{target_session_id}' ({session_row.account_email or 'No email'}) cookies have expired or redirected to login (HTTP 302). Please export fresh cookies and update them in Cookie Sessions tab.",
+                message=f"Instant Session '{target_session_id}' ({session_row.account_email or 'No email'}) cookies have expired. Please export fresh cookies and update them in Cookie Sessions tab.",
                 level="error",
                 source=f"cookies_{target_session_id}",
             )
@@ -100,23 +79,18 @@ async def get_web_client(session_id: Optional[str] = None) -> Tuple[NativeWebCli
             detail="Service is temporarily busy. Please try again in a few minutes.",
         )
 
-    # Persist the newly established session blob back to database
-    await sync_session_blob(target_session_id, client)
-    return client, target_session_id
-
 
 async def sync_session_blob(session_id: str, client: NativeWebClient) -> None:
-    """Save rotated cookies & TLS tickets from live client back to SQLite web_sessions table."""
+    """Persist rotated cookies & TLS tickets from live client back to the web_sessions table."""
     try:
         blob = client.export_session_blob()
         if blob and len(blob) > 0:
             async with get_db() as db:
-                stmt = (
+                await db.execute(
                     update(WebSession)
                     .where(WebSession.session_id == session_id)
-                    .values(session_blob=blob)
+                    .values(session_blob=blob, is_active=True)
                 )
-                await db.execute(stmt)
-            logger.debug("Successfully synced session blob for '%s' to database.", session_id)
+            logger.debug("Synced session blob for '%s'.", session_id)
     except Exception as exc:
         logger.warning("Failed to sync session blob for '%s': %s", session_id, exc)

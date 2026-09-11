@@ -51,8 +51,8 @@ class WebSession(Base):
     session_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     account_email: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
-    raw_cookies: Mapped[str] = mapped_column(Text, nullable=False)
-    session_blob: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)
+    # session_blob is the sole source of truth; raw_cookies dropped to prevent stale state.
+    session_blob: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -85,10 +85,6 @@ class ApiKey(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=func.now(), nullable=False)
     last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-
-
-# Additional multi-column index for cache lookup
-Index("idx_download_cache_lookup", DownloadCache.media_key, DownloadCache.expires_at)
 
 
 class StreamCache(Base):
