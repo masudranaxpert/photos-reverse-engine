@@ -426,12 +426,17 @@ class PhotosEngineClient:
         raw_ptr = func(self._handle, *args, ctypes.c_longlong(timeout_ms))
         return _parse_c_json(self._lib, raw_ptr, func.__name__)
 
-    def __del__(self):
+    def close(self):
+        """Explicitly release the Go client handle and free Go-side memory."""
         if hasattr(self, "_handle") and self._handle and hasattr(self, "_lib"):
             try:
                 self._lib.GPMC_CloseClient(self._handle)
+                self._handle = 0
             except Exception:
                 pass
+
+    def __del__(self):
+        self.close()
 
     def get_token(self, timeout: Optional[float] = None) -> str:
         """Get a valid OAuth2 Bearer token from Go's thread-safe caching TokenManager."""
