@@ -96,7 +96,7 @@ const UI = {
     if (kind === "loading") {
       return (
         `<tr><td colspan="${colspan}" class="cell-state">` +
-        `<span class="inline-spinner">${icon("loader-circle", 20)}</span> ${this.escapeHtml(message)}` +
+        `<div class="cell-state-content"><span class="inline-spinner">${icon("loader-circle", 20)}</span> <span>${this.escapeHtml(message)}</span></div>` +
         `</td></tr>`
       );
     }
@@ -104,7 +104,7 @@ const UI = {
     const iconName = kind === "error" ? "circle-alert" : "inbox";
     return (
       `<tr><td colspan="${colspan}" class="cell-state ${tone}">` +
-      `${icon(iconName, 18)} ${this.escapeHtml(message)}</td></tr>`
+      `<div class="cell-state-content">${icon(iconName, 18)} <span>${this.escapeHtml(message)}</span></div></td></tr>`
     );
   },
 
