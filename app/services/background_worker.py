@@ -677,7 +677,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                         ) or []
 
                         if status == 1:
-                            retry_at = utc_now_naive() + timedelta(minutes=2)
+                            retry_at = utc_now_naive() + timedelta(minutes=5)
                             async with get_db() as db:
                                 await db.execute(
                                     update(TempImport)
