@@ -387,7 +387,7 @@
       <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
         <div>
           <h3 class="section-title"><span data-icon="layers" data-size="20"></span> Import Concurrency</h3>
-        <p class="section-desc">How many Drive → Google Photos imports can run in parallel. Default: <strong>1</strong> (sequential). Hard limit: <strong>150</strong> — Google throttles above this.</p>
+        <p class="section-desc">How many Drive → Google Photos imports can run in parallel. Default: <strong>1</strong> (sequential). Safe limit: <strong>50</strong> — preserves network headroom.</p>
         </div>
         <span id="concurrency-status-badge" class="badge badge-success">1 slot</span>
       </div>
@@ -396,14 +396,14 @@
           <label class="form-label" style="margin-bottom: 0;" for="max_concurrent_imports">Max Concurrent Imports</label>
           <span id="concurrency-value-chip" class="badge badge-success" style="font-size: 0.78rem;">1 slot</span>
         </div>
-        <input type="range" id="concurrency-slider" class="form-range" min="1" max="150" step="1" value="1"
+        <input type="range" id="concurrency-slider" class="form-range" min="1" max="50" step="1" value="1"
           style="width: 100%; accent-color: var(--accent); cursor: pointer;">
         <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); margin-top: 0.15rem;">
-          <span>1</span><span>150</span>
+          <span>1</span><span>50</span>
         </div>
         <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.85rem; flex-wrap: wrap;">
           <input type="number" id="max_concurrent_imports" name="max_concurrent_imports"
-            class="form-input" min="1" max="150" step="1" value="1"
+            class="form-input" min="1" max="50" step="1" value="1"
             style="max-width: 130px; font-family: var(--font-mono); font-weight: 600;">
           <button type="button" id="save-concurrency-btn" class="btn btn-primary" style="white-space: nowrap;">
             <span data-icon="save" data-size="15"></span> Save
@@ -414,11 +414,9 @@
             <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="10">10</button>
             <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="25">25</button>
             <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="50">50</button>
-            <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="100">100</button>
-            <button type="button" class="btn btn-secondary btn-sm conc-preset" data-value="150">150</button>
           </div>
         </div>
-        <span class="form-hint">Takes effect on the next queued import. Range: 1 – 150. Values above 150 are automatically capped by the server.</span>
+        <span class="form-hint">Takes effect on the next queued import. Range: 1 – 50. Values above 50 are automatically capped by the server.</span>
       </div>
     </div>
 

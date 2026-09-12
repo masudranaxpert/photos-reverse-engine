@@ -307,13 +307,13 @@ async def mark_cookies_valid_and_resume() -> int:
 
 
 async def _get_import_concurrency() -> int:
-    """Read max_concurrent_imports from settings, clamped to [1, 40]."""
+    """Read max_concurrent_imports from settings, clamped to [1, 50]."""
     try:
         async with get_db(write=False) as db:
             row = await db.get(SystemSetting, "max_concurrent_imports")
             if row:
-                # Safe ceiling: 40 — beyond this Google Photos RPCs experience network contention.
-                return max(1, min(40, int(row.value)))
+                # Safe ceiling: 50 — preserves network headroom for RPCs.
+                return max(1, min(50, int(row.value)))
     except Exception:
         pass
     return 1

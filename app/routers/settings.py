@@ -78,12 +78,12 @@ async def set_import_concurrency(
     req: ConcurrencyRequest,
     current_admin: dict = Depends(get_current_admin),
 ):
-    """Update max concurrent import slots (1–2000). Takes effect on next queued import."""
+    """Update max concurrent import slots (1–50). Takes effect on next queued import."""
     value = req.max_concurrent_imports
-    if not (1 <= value <= 2000):
+    if not (1 <= value <= 50):
         raise HTTPException(
             status_code=400,
-            detail="max_concurrent_imports must be between 1 and 2000",
+            detail="max_concurrent_imports must be between 1 and 50",
         )
     async with get_db() as db:
         row = await db.get(SystemSetting, "max_concurrent_imports")
