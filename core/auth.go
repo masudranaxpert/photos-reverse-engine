@@ -43,6 +43,13 @@ func NewTokenManager(authData string) (*TokenManager, error) {
 		params:   values,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        50,
+				MaxIdleConnsPerHost: 20,
+				IdleConnTimeout:     90 * time.Second,
+				TLSHandshakeTimeout: 10 * time.Second,
+				ForceAttemptHTTP2:   true,
+			},
 		},
 	}, nil
 }

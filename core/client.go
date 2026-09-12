@@ -44,6 +44,13 @@ func NewClient(authData string) (*Client, error) {
 		tokenManager: tm,
 		httpClient: &http.Client{
 			Timeout: 45 * time.Second,
+			Transport: &http.Transport{
+				MaxIdleConns:        100,
+				MaxIdleConnsPerHost: 50,
+				IdleConnTimeout:     90 * time.Second,
+				TLSHandshakeTimeout: 10 * time.Second,
+				ForceAttemptHTTP2:   true,
+			},
 		},
 		userAgent: defaultUserAgent,
 		language:  defaultLanguage,
