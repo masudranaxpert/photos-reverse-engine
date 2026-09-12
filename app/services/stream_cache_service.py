@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 async def get_cached_stream(media_key: str) -> Optional[Dict[str, Any]]:
-    """Retrieve non-expired parsed stream and manifest data for media_key."""
+    """Retrieve non-expired parsed stream and manifest data for media_key (strictly real video streams only)."""
     now = utc_now_naive()
     async with get_db(write=False) as db:
         stmt = select(StreamCache).where(
@@ -26,9 +26,16 @@ async def get_cached_stream(media_key: str) -> Optional[Dict[str, Any]]:
             return None
 
         try:
-            videos = json.loads(item.video_streams)
+            raw_videos = json.loads(item.video_streams)
+            videos = [
+                v for v in raw_videos
+                if not v.get("is_otf") and "picasa_otf" not in v.get("url", "")
+            ]
         except Exception:
             videos = []
+
+        if not videos:
+            return None
 
         try:
             audios = json.loads(item.audio_streams) if item.audio_streams else []
@@ -47,15 +54,9 @@ async def get_cached_stream(media_key: str) -> Optional[Dict[str, Any]]:
 
 
 async def is_stream_cached(media_key: str) -> bool:
-    """Quickly check if an unexpired stream cache entry exists for media_key."""
-    now = utc_now_naive()
-    async with get_db(write=False) as db:
-        stmt = select(func.count(StreamCache.id)).where(
-            StreamCache.media_key == media_key,
-            StreamCache.expires_at > now,
-        )
-        count = (await db.execute(stmt)).scalar() or 0
-        return count > 0
+    """Quickly check if an unexpired stream cache entry with real video streams exists for media_key."""
+    cached = await get_cached_stream(media_key)
+    return bool(cached and cached.get("videos"))
 
 
 async def set_cached_stream(
@@ -65,13 +66,24 @@ async def set_cached_stream(
     audio_streams: Optional[List[Dict[str, Any]]] = None,
     ttl_seconds: int = STREAM_CACHE_TTL_SECONDS,
 ) -> None:
-    """Store or update parsed streaming tracks in SQLite with 20-minute validity."""
+    """Store or update parsed streaming tracks in SQLite with 20-minute validity.
+    Strictly only caches real progressive video files; picasa_otf URLs are never cached.
+    """
     if not media_key or not video_streams:
+        return
+
+    # Never cache unplayable picasa_otf URLs — strictly only real video file links
+    valid_videos = [
+        v for v in video_streams
+        if not v.get("is_otf") and "picasa_otf" not in v.get("url", "")
+    ]
+    if not valid_videos:
+        logger.debug("[stream cache set] Rejected caching for %s: no real video streams (picasa_otf discarded)", media_key)
         return
 
     now = utc_now_naive()
     expires_at = now + timedelta(seconds=ttl_seconds)
-    video_json = json.dumps(video_streams)
+    video_json = json.dumps(valid_videos)
     audio_json = json.dumps(audio_streams) if audio_streams else None
 
     async with get_db() as db:
@@ -96,6 +108,17 @@ async def set_cached_stream(
             db.add(entry)
 
     logger.debug("[stream cache set] media_key=%s ttl=%ss", media_key, ttl_seconds)
+
+
+async def purge_otf_from_cache() -> int:
+    """Delete any legacy entries containing unplayable picasa_otf URLs."""
+    async with get_db() as db:
+        stmt = delete(StreamCache).where(StreamCache.video_streams.like("%picasa_otf%"))
+        res = await db.execute(stmt)
+        deleted = res.rowcount
+    if deleted > 0:
+        logger.info("[stream cache purge] Purged %d legacy picasa_otf entries", deleted)
+    return deleted
 
 
 async def cleanup_expired_stream_cache() -> int:

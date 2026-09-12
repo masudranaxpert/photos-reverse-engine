@@ -392,20 +392,6 @@ async def get_streaming_manifest(token: str):
         ]
         audios = stream_data.get("audios") or []
 
-        # Fallback to direct progressive MP4 video if no progressive streams in manifest
-        if not videos:
-            direct_url = await _get_download_url(perm.media_key, "permanent")
-            if direct_url:
-                videos = [{
-                    "url": direct_url,
-                    "bandwidth": 0,
-                    "resolution": "Original",
-                    "label": "Original",
-                    "codecs": "mp4",
-                    "is_otf": False,
-                }]
-                audios = []
-
         if videos:
             await set_cached_stream(
                 media_key=perm.media_key,
@@ -413,6 +399,7 @@ async def get_streaming_manifest(token: str):
                 video_streams=videos,
                 audio_streams=audios,
             )
+
         return {
             "success": True,
             "ready": bool(videos),
@@ -422,34 +409,6 @@ async def get_streaming_manifest(token: str):
         }
     except Exception as exc:
         err_msg = str(exc)
-        # Attempt direct video URL fallback before returning error
-        try:
-            direct_url = await _get_download_url(perm.media_key, "permanent")
-            if direct_url:
-                direct_videos = [{
-                    "url": direct_url,
-                    "bandwidth": 0,
-                    "resolution": "Original",
-                    "label": "Original",
-                    "codecs": "mp4",
-                    "is_otf": False,
-                }]
-                await set_cached_stream(
-                    media_key=perm.media_key,
-                    drive_ref_id=drive_ref.id,
-                    video_streams=direct_videos,
-                    audio_streams=[],
-                )
-                return {
-                    "success": True,
-                    "ready": True,
-                    "filename": drive_ref.filename,
-                    "videos": direct_videos,
-                    "audios": [],
-                }
-        except Exception:
-            pass
-
         if "not ready" in err_msg or "404" in err_msg:
             return JSONResponse(
                 status_code=422,
