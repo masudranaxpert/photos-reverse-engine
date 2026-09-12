@@ -356,11 +356,11 @@
         const primaryVideo = videoList[0];
         const audioUrl = (audioList.length > 0) ? audioList[0].url : null;
 
-        const qualityList = videoList.map((v, i) => ({
+        const qualityList = (videoList.length > 1) ? videoList.map((v, i) => ({
           default: i === 0,
           html: v.label || v.resolution || `Stream ${i + 1}`,
           url: v.url,
-        }));
+        })) : [];
 
         const plugins = [];
         if (audioUrl && typeof window.artplayerPluginAudioTrack === 'function') {

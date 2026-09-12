@@ -366,37 +366,90 @@ async def get_streaming_manifest(token: str):
             detail="Streaming is only available for items stored permanently in the Google Photos library.",
         )
 
-    # 1. Try 20-min stream cache first
+    # 1. Try 20-min stream cache first (ignoring any stale picasa_otf URLs)
     cached_stream = await get_cached_stream(perm.media_key)
     if cached_stream and cached_stream.get("videos"):
-        return {
-            "success": True,
-            "ready": True,
-            "filename": drive_ref.filename,
-            "videos": cached_stream["videos"],
-            "audios": cached_stream.get("audios") or [],
-        }
+        valid_cached_videos = [
+            v for v in cached_stream["videos"]
+            if not v.get("is_otf") and "picasa_otf" not in v.get("url", "")
+        ]
+        if valid_cached_videos:
+            return {
+                "success": True,
+                "ready": True,
+                "filename": drive_ref.filename,
+                "videos": valid_cached_videos,
+                "audios": cached_stream.get("audios") or [],
+            }
 
     try:
         from app.services.streaming_service import get_streaming_data_for_media_key
 
         stream_data = await get_streaming_data_for_media_key(perm.media_key)
-        if stream_data and stream_data.get("videos"):
+        videos = [
+            v for v in (stream_data.get("videos") or [])
+            if not v.get("is_otf") and "picasa_otf" not in v.get("url", "")
+        ]
+        audios = stream_data.get("audios") or []
+
+        # Fallback to direct progressive MP4 video if no progressive streams in manifest
+        if not videos:
+            direct_url = await _get_download_url(perm.media_key, "permanent")
+            if direct_url:
+                videos = [{
+                    "url": direct_url,
+                    "bandwidth": 0,
+                    "resolution": "Original",
+                    "label": "Original",
+                    "codecs": "mp4",
+                    "is_otf": False,
+                }]
+                audios = []
+
+        if videos:
             await set_cached_stream(
                 media_key=perm.media_key,
                 drive_ref_id=drive_ref.id,
-                video_streams=stream_data["videos"],
-                audio_streams=stream_data.get("audios"),
+                video_streams=videos,
+                audio_streams=audios,
             )
         return {
             "success": True,
-            "ready": True,
+            "ready": bool(videos),
             "filename": drive_ref.filename,
-            "videos": stream_data["videos"],
-            "audios": stream_data["audios"],
+            "videos": videos,
+            "audios": audios,
         }
     except Exception as exc:
         err_msg = str(exc)
+        # Attempt direct video URL fallback before returning error
+        try:
+            direct_url = await _get_download_url(perm.media_key, "permanent")
+            if direct_url:
+                direct_videos = [{
+                    "url": direct_url,
+                    "bandwidth": 0,
+                    "resolution": "Original",
+                    "label": "Original",
+                    "codecs": "mp4",
+                    "is_otf": False,
+                }]
+                await set_cached_stream(
+                    media_key=perm.media_key,
+                    drive_ref_id=drive_ref.id,
+                    video_streams=direct_videos,
+                    audio_streams=[],
+                )
+                return {
+                    "success": True,
+                    "ready": True,
+                    "filename": drive_ref.filename,
+                    "videos": direct_videos,
+                    "audios": [],
+                }
+        except Exception:
+            pass
+
         if "not ready" in err_msg or "404" in err_msg:
             return JSONResponse(
                 status_code=422,

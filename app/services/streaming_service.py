@@ -76,16 +76,14 @@ def parse_mpd_streams(manifest_xml: str) -> Dict[str, List[Dict[str, Any]]]:
             elif mime.startswith("audio"):
                 audios.append(entry)
 
-    # Prefer non-otf complete progressive streams if available
+    # Filter out fragmented OTF streams (source/picasa_otf) — never send unplayable fragmented URLs
     clean_videos = [v for v in videos if not v["is_otf"]]
-    final_videos = clean_videos if clean_videos else videos
-
-    final_videos.sort(key=lambda x: x["bandwidth"], reverse=True)
+    clean_videos.sort(key=lambda x: x["bandwidth"], reverse=True)
     audios.sort(key=lambda x: x["bandwidth"], reverse=True)
 
     return {
-        "videos": final_videos,
-        "audios": audios,
+        "videos": clean_videos,
+        "audios": audios if clean_videos else [],
     }
 
 
