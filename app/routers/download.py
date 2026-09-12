@@ -165,7 +165,7 @@ async def _resolve_download_url_upstream(media_key: str, source: str, timeout: f
     return None
 
 
-async def _get_download_url(media_key: str, source: str, timeout: float = 8.0) -> str | None:
+async def _get_download_url(media_key: str, source: str, timeout: float = 10.0) -> str | None:
     """Try cache first, then resolve via single-flight deduplicated upstream call."""
     cached = await get_cached_url(media_key)
     if cached and cached.get("download_url"):
