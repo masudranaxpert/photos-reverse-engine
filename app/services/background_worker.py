@@ -307,13 +307,13 @@ async def mark_cookies_valid_and_resume() -> int:
 
 
 async def _get_import_concurrency() -> int:
-    """Read max_concurrent_imports from settings, clamped to [1, 150]."""
+    """Read max_concurrent_imports from settings, clamped to [1, 40]."""
     try:
         async with get_db(write=False) as db:
             row = await db.get(SystemSetting, "max_concurrent_imports")
             if row:
-                # Hard ceiling: 150 — beyond this Google starts 429-ing.
-                return max(1, min(150, int(row.value)))
+                # Safe ceiling: 40 — beyond this Google Photos RPCs experience network contention.
+                return max(1, min(40, int(row.value)))
     except Exception:
         pass
     return 1
@@ -659,21 +659,66 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
     if pending_promote:
         try:
             mobile_client, mobile_account = await get_mobile_client(background=True)
-            for item in pending_promote:
-                try:
-                    result = await mobile_client.import_share_url_async(item.share_url, timeout=15.0)
-                    import_result = result.get("import_result") if isinstance(result, dict) else result
-                    status = (
-                        import_result.get("status") if isinstance(import_result, dict)
-                        else getattr(import_result, "status", None)
-                    )
-                    new_keys = (
-                        import_result.get("new_keys") if isinstance(import_result, dict)
-                        else getattr(import_result, "new_keys", None)
-                        or getattr(import_result, "new_media_keys", None)
-                    ) or []
+            promote_sem = asyncio.Semaphore(5)
 
-                    if status == 1:
+            async def _promote_one(item: TempImport) -> bool:
+                async with promote_sem:
+                    try:
+                        result = await mobile_client.import_share_url_async(item.share_url, timeout=30.0)
+                        import_result = result.get("import_result") if isinstance(result, dict) else result
+                        status = (
+                            import_result.get("status") if isinstance(import_result, dict)
+                            else getattr(import_result, "status", None)
+                        )
+                        new_keys = (
+                            import_result.get("new_keys") if isinstance(import_result, dict)
+                            else getattr(import_result, "new_keys", None)
+                            or getattr(import_result, "new_media_keys", None)
+                        ) or []
+
+                        if status == 1:
+                            retry_at = utc_now_naive() + timedelta(minutes=2)
+                            async with get_db() as db:
+                                await db.execute(
+                                    update(TempImport)
+                                    .where(TempImport.id == item.id)
+                                    .values(promote_after=retry_at)
+                                )
+                            logger.info(
+                                "[sweep/promote] media_key=%s still transcoding, retry after %s",
+                                item.media_key, retry_at.strftime("%H:%M:%S"),
+                            )
+                            return False
+
+                        if status == 2:
+                            permanent_key = new_keys[0] if new_keys else item.media_key
+                            async with _promote_lock:
+                                try:
+                                    async with get_db() as db:
+                                        db.add(PermanentItem(
+                                            drive_ref_id=item.drive_ref_id,
+                                            media_key=permanent_key,
+                                            email=mobile_account.email,
+                                        ))
+                                        await db.execute(delete(TempImport).where(TempImport.id == item.id))
+                                except IntegrityError:
+                                    logger.info(
+                                        "[sweep/promote] media_key=%s already promoted by concurrent sweep — removing temp row",
+                                        item.media_key,
+                                    )
+                                    async with get_db() as db:
+                                        await db.execute(delete(TempImport).where(TempImport.id == item.id))
+                                    return False
+
+                            if item.dedup_key:
+                                asyncio.create_task(_cleanup_temp_web_item(item.dedup_key, item.media_key))
+
+                            logger.info(
+                                "[sweep/promote] Promoted media_key=%s -> permanent_key=%s",
+                                item.media_key, permanent_key,
+                            )
+                            return True
+
                         retry_at = utc_now_naive() + timedelta(minutes=5)
                         async with get_db() as db:
                             await db.execute(
@@ -681,68 +726,36 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                                 .where(TempImport.id == item.id)
                                 .values(promote_after=retry_at)
                             )
-                        logger.info(
-                            "[sweep/promote] media_key=%s still transcoding, retry after %s",
-                            item.media_key, retry_at.strftime("%H:%M:%S"),
+                        logger.warning(
+                            "[sweep/promote] Unexpected status=%s for media_key=%s, will retry after %s",
+                            status, item.media_key, retry_at.strftime("%H:%M:%S"),
                         )
-                        continue
-
-                    if status == 2:
-                        permanent_key = new_keys[0] if new_keys else item.media_key
-                        async with _promote_lock:
-                            try:
-                                async with get_db() as db:
-                                    db.add(PermanentItem(
-                                        drive_ref_id=item.drive_ref_id,
-                                        media_key=permanent_key,
-                                        email=mobile_account.email,
-                                    ))
-                                    await db.execute(delete(TempImport).where(TempImport.id == item.id))
-                            except IntegrityError:
-                                logger.info(
-                                    "[sweep/promote] media_key=%s already promoted by concurrent sweep — removing temp row",
-                                    item.media_key,
+                        return False
+                    except Exception as exc:
+                        err_str = str(exc).lower()
+                        # Short retry for transient deadlines / timeouts; longer for hard errors
+                        if "deadline" in err_str or "timeout" in err_str:
+                            retry_delay = timedelta(seconds=30)
+                        else:
+                            retry_delay = timedelta(minutes=5)
+                        retry_at = utc_now_naive() + retry_delay
+                        try:
+                            async with get_db() as db:
+                                await db.execute(
+                                    update(TempImport)
+                                    .where(TempImport.id == item.id)
+                                    .values(promote_after=retry_at)
                                 )
-                                async with get_db() as db:
-                                    await db.execute(delete(TempImport).where(TempImport.id == item.id))
-                                continue
-
-                        if item.dedup_key:
-                            asyncio.create_task(_cleanup_temp_web_item(item.dedup_key, item.media_key))
-
-                        promoted += 1
-                        logger.info(
-                            "[sweep/promote] Promoted media_key=%s -> permanent_key=%s",
-                            item.media_key, permanent_key,
+                        except Exception as db_exc:
+                            logger.warning("[sweep/promote] Failed to update retry_at for %s: %s", item.media_key, db_exc)
+                        logger.warning(
+                            "[sweep/promote] Failed for media_key=%s, will retry after %s: %s",
+                            item.media_key, retry_at.strftime("%H:%M:%S"), exc,
                         )
-                        continue
+                        return False
 
-                    retry_at = utc_now_naive() + timedelta(minutes=5)
-                    async with get_db() as db:
-                        await db.execute(
-                            update(TempImport)
-                            .where(TempImport.id == item.id)
-                            .values(promote_after=retry_at)
-                        )
-                    logger.warning(
-                        "[sweep/promote] Unexpected status=%s for media_key=%s, will retry after %s",
-                        status, item.media_key, retry_at.strftime("%H:%M:%S"),
-                    )
-                except Exception as exc:
-                    retry_at = utc_now_naive() + timedelta(minutes=5)
-                    try:
-                        async with get_db() as db:
-                            await db.execute(
-                                update(TempImport)
-                                .where(TempImport.id == item.id)
-                                .values(promote_after=retry_at)
-                            )
-                    except Exception as db_exc:
-                        logger.warning("[sweep/promote] Failed to update retry_at for %s: %s", item.media_key, db_exc)
-                    logger.warning(
-                        "[sweep/promote] Failed for media_key=%s, will retry after %s: %s",
-                        item.media_key, retry_at.strftime("%H:%M:%S"), exc,
-                    )
+            results = await asyncio.gather(*[_promote_one(it) for it in pending_promote], return_exceptions=True)
+            promoted = sum(1 for r in results if r is True)
         except Exception as exc:
             logger.warning("[sweep/promote] Mobile client error: %s", exc)
 

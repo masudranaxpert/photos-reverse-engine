@@ -65,7 +65,7 @@ async def get_active_mobile_account(account_id: Optional[int] = None) -> Optiona
 
 
 # In-memory client caches
-# 1. Request path: pool of 2 PhotosEngineClients per account for concurrent download resolution
+# 1. Request path: pool of 6 PhotosEngineClients per account for concurrent download resolution
 _download_clients_pool: dict[int, tuple[str, list[PhotosEngineClient]]] = {}
 _download_pool_idx: int = 0
 
@@ -76,7 +76,7 @@ _bg_client_cache: dict[int, tuple[str, PhotosEngineClient]] = {}
 _streaming_client_cache: dict[int, tuple[str, PhotosEngineClient]] = {}
 
 _pool_init_lock = asyncio.Lock()
-_POOL_SIZE = 2
+_POOL_SIZE = 6
 
 
 def _close_client_entry(entry: Any) -> None:

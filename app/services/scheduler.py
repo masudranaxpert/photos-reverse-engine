@@ -137,6 +137,7 @@ async def start_scheduler() -> None:
 
     for job_type, task_func in JOB_TASK_MAP.items():
         interval_sec = intervals.get(job_type, DEFAULT_JOB_INTERVALS.get(job_type, 60))
+        max_inst = 2 if job_type == "pipeline_sweep" else 1
         scheduler.add_job(
             _run_managed_job,
             trigger=IntervalTrigger(seconds=interval_sec),
@@ -144,7 +145,7 @@ async def start_scheduler() -> None:
             id=job_type,
             name=job_type,
             replace_existing=True,
-            max_instances=1,
+            max_instances=max_inst,
             coalesce=True,
         )
         logger.info("[scheduler] Registered job '{}' (interval: {}s)", job_type, interval_sec)

@@ -393,11 +393,12 @@
   // Remove the URL parameter from the address bar without refreshing the page
   window.history.replaceState({}, document.title, window.location.pathname);
 
-  // Processing pages: poll /api/download/{token} every 2.5s with a 60s timeout
+  // Processing pages: poll /api/download/{token} every 4s with in-flight guard and a 60s timeout
   const isProcessing = {{ 'true' if status == 'processing' or (status == 'ready' and not download_url) else 'false' }};
   if (isProcessing) {
     const startTime = Date.now();
     const TIMEOUT_MS = 60000;
+    let inFlight = false;
 
     const pollTimer = setInterval(async () => {
       const elapsed = Date.now() - startTime;
@@ -409,6 +410,9 @@
         if (errCard) errCard.style.display = 'block';
         return;
       }
+
+      if (inFlight) return;
+      inFlight = true;
 
       try {
         const res = await fetch('/api/download/{{ token }}');
@@ -429,8 +433,10 @@
         }
       } catch (e) {
         // Network glitch, will retry next tick
+      } finally {
+        inFlight = false;
       }
-    }, 2500);
+    }, 4000);
   }
 
   // ── Toggle Inline Iframe Player ──

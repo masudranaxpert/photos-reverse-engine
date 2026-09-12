@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import sys
 import time
@@ -84,7 +85,7 @@ async def get_web_client(session_id: Optional[str] = None, allow_inactive: bool 
     blob = session_row.session_blob
 
     try:
-        client = NativeWebClient.from_blob(blob)
+        client = await asyncio.to_thread(NativeWebClient.from_blob, blob)
         return client, target_session_id
     except Exception as exc:
         err_msg = str(exc)

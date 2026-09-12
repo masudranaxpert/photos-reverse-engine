@@ -543,6 +543,45 @@ class TestFastAPIBigSystem(unittest.TestCase):
         self.assertEqual(len(m_data["items"]), 1)
         self.assertEqual(m_data["items"][0]["visitor_count"], 1)
 
+    def test_23_download_singleflight_and_negative_cache(self):
+        """Verify concurrent download requests are deduplicated and failures negative-cached."""
+        from unittest.mock import AsyncMock, patch
+        from app.routers.download import _get_download_url, _negative_cache, _inflight_resolves
+
+        async def _run():
+            call_count = 0
+            async def mock_resolve(media_key, source, timeout):
+                nonlocal call_count
+                call_count += 1
+                await asyncio.sleep(0.02)
+                return "https://photos.google.com/dl_ok"
+
+            with patch("app.routers.download.get_cached_url", new=AsyncMock(return_value=None)), \
+                 patch("app.routers.download._resolve_download_url_upstream", side_effect=mock_resolve):
+                _negative_cache.clear()
+                _inflight_resolves.clear()
+                res = await asyncio.gather(*[_get_download_url("mk_single_flight", "permanent") for _ in range(4)])
+                assert all(r == "https://photos.google.com/dl_ok" for r in res)
+                assert call_count == 1, f"Expected 1 call, got {call_count}"
+
+            # Test negative cache
+            fail_count = 0
+            async def mock_fail(media_key, source, timeout):
+                nonlocal fail_count
+                fail_count += 1
+                return None
+
+            with patch("app.routers.download.get_cached_url", new=AsyncMock(return_value=None)), \
+                 patch("app.routers.download._resolve_download_url_upstream", side_effect=mock_fail):
+                _negative_cache.clear()
+                _inflight_resolves.clear()
+                r1 = await _get_download_url("mk_fail", "permanent")
+                r2 = await _get_download_url("mk_fail", "permanent")
+                assert r1 is None and r2 is None
+                assert fail_count == 1, f"Expected 1 upstream call due to negative cache, got {fail_count}"
+
+        asyncio.run(_run())
+
 
 if __name__ == "__main__":
     unittest.main()
