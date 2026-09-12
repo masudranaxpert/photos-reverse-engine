@@ -8,17 +8,12 @@ from typing import Optional
 from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
-from app.database import get_db
+from app.database import get_db, utc_now_naive
 from app.models import BackgroundJob, DriveRef, PermanentItem, SystemSetting, TempImport
 from app.services.mobile_service import extract_email_from_auth_data, get_mobile_client
 from app.services.web_service import get_web_client
 
 logger = logging.getLogger("photos_engine.worker")
-
-
-def _utc_now() -> datetime:
-    """Return naive UTC datetime for SQLite compatibility."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 async def run_cookies_check_logic() -> dict:
@@ -124,7 +119,7 @@ async def run_stream_cache_cleanup_logic() -> dict:
 
 async def run_daily_cleanup_logic() -> dict:
     """Purge temporary imports older than 24h from Google Photos and DB."""
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=24)
+    cutoff = utc_now_naive() - timedelta(hours=24)
     freed = 0
     deleted_count = 0
 
@@ -179,12 +174,13 @@ async def run_daily_cleanup_logic() -> dict:
                 logger.error("[daily_cleanup] Active cookies expired while deleting temp item %s. Halting cleanup until cookies updated.", item.media_key)
                 break
 
-            if delete_success or not item.dedup_key:
-                freed += ref_size or (100 * 1024 * 1024)
-                deleted_ids.append(item.id)
+            item_size = ref_size or (100 * 1024 * 1024)
+            if delete_success:
+                freed += item_size
                 deleted_count += 1
+                deleted_ids.append(item.id)
             else:
-                logger.warning("[daily_cleanup] Failed to delete temp item %s from Google Photos after 3 retries (%s). Purging from DB.", item.media_key, last_err)
+                logger.warning("[daily_cleanup] Could not delete item %s (%s). Purging DB row.", item.media_key, last_err)
                 deleted_ids.append(item.id)
     finally:
         if client:
@@ -195,6 +191,13 @@ async def run_daily_cleanup_logic() -> dict:
         from sqlalchemy import delete as sa_delete
         async with get_db() as db:
             await db.execute(sa_delete(TempImport).where(TempImport.id.in_(deleted_ids)))
+
+    # Periodic audit log pruning during daily cleanup instead of per-request
+    try:
+        from app.services.notice_service import prune_audit_log
+        await prune_audit_log()
+    except Exception:
+        pass
 
     return {"deleted_count": deleted_count, "freed_bytes": freed}
 
@@ -213,7 +216,7 @@ async def trigger_pipeline_sweep() -> None:
         await db.execute(
             update(BackgroundJob)
             .where(BackgroundJob.job_type == "pipeline_sweep")
-            .values(status="pending", next_run_at=_utc_now())
+            .values(status="pending", next_run_at=utc_now_naive())
         )
 
 
@@ -644,7 +647,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                 loop = asyncio.get_running_loop()
                 await loop.run_in_executor(None, client.close)
 
-    now = _utc_now()
+    now = utc_now_naive()
     async with get_db(write=False) as db:
         pending_promote = (await db.execute(
             select(TempImport).where(
@@ -671,7 +674,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                     ) or []
 
                     if status == 1:
-                        retry_at = _utc_now() + timedelta(minutes=5)
+                        retry_at = utc_now_naive() + timedelta(minutes=5)
                         async with get_db() as db:
                             await db.execute(
                                 update(TempImport)
@@ -714,7 +717,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                         )
                         continue
 
-                    retry_at = _utc_now() + timedelta(minutes=5)
+                    retry_at = utc_now_naive() + timedelta(minutes=5)
                     async with get_db() as db:
                         await db.execute(
                             update(TempImport)
@@ -726,7 +729,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                         status, item.media_key, retry_at.strftime("%H:%M:%S"),
                     )
                 except Exception as exc:
-                    retry_at = _utc_now() + timedelta(minutes=5)
+                    retry_at = utc_now_naive() + timedelta(minutes=5)
                     try:
                         async with get_db() as db:
                             await db.execute(

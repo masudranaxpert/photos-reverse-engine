@@ -2,17 +2,20 @@
 Google Drive v3 API service for file metadata pre-fetching.
 Fetches exact filename, file_size, and accessibility before importing to Google Photos.
 """
-import logging
+import asyncio
 from dataclasses import dataclass
+import json
+import logging
+import time
 from typing import Optional
+import urllib.error
+import urllib.parse
+import urllib.request
 
-import httpcloak
 from sqlalchemy import select
 
 from app.database import get_db
 from app.models import SystemSetting
-
-import time
 
 logger = logging.getLogger("photos_engine.drive_api")
 
@@ -67,7 +70,7 @@ async def set_drive_api_key(api_key: str) -> None:
             setting = SystemSetting(
                 key="google_drive_api_key",
                 value=clean_key,
-                description="Google Drive v3 API Key for file metadata pre-fetching",
+                description="Google Drive v3 API Key for file metadata validation",
             )
             db.add(setting)
 
@@ -94,67 +97,76 @@ async def get_drive_file_metadata(drive_id: str) -> DriveFileMetadata:
         "key": api_key,
         "supportsAllDrives": "true",
     }
+    query_str = urllib.parse.urlencode(params)
+    target_url = f"{url}?{query_str}"
+    req = urllib.request.Request(target_url, headers={"User-Agent": "PhotosEngine/1.0"})
+
+    def _fetch():
+        try:
+            with urllib.request.urlopen(req, timeout=12) as response:
+                return response.status, json.loads(response.read().decode("utf-8")), None
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            try:
+                err_json = json.loads(body)
+            except Exception:
+                err_json = {}
+            return e.code, err_json, body
+        except Exception as e:
+            return 0, {}, str(e)
 
     try:
-        with httpcloak.Session(preset="chrome-latest", timeout=12) as session:
-            resp = await session.get_async(url, params=params)
+        status_code, data, raw_err = await asyncio.to_thread(_fetch)
 
-            if resp.status_code == 404:
-                logger.warning("[drive_api] File %s not found (HTTP 404)", clean_id)
-                return DriveFileMetadata(
-                    drive_id=clean_id,
-                    status="not_found",
-                    error_message="File not found or inaccessible in Google Drive.",
-                )
-
-            if not resp.ok:
-                try:
-                    err_body = resp.json()
-                except Exception:
-                    err_body = {}
-                err_msg = err_body.get("error", {}).get("message", resp.text[:120])
-                logger.warning("[drive_api] Drive API HTTP %d for %s: %s", resp.status_code, clean_id, err_msg)
-
-                # Check if error message explicitly mentions not found
-                if "notFound" in str(err_body) or resp.status_code in (400, 403, 404):
-                    return DriveFileMetadata(
-                        drive_id=clean_id,
-                        status="not_found",
-                        error_message=f"Google Drive file inaccessible or not found: {err_msg}",
-                    )
-                return DriveFileMetadata(
-                    drive_id=clean_id,
-                    status="error",
-                    error_message=f"Drive API error ({resp.status_code}): {err_msg}",
-                )
-
-            data = resp.json()
-
-            if data.get("trashed"):
-                logger.warning("[drive_api] File %s is trashed", clean_id)
-                return DriveFileMetadata(
-                    drive_id=clean_id,
-                    status="not_found",
-                    error_message="File is in Google Drive trash.",
-                )
-
-            raw_size = data.get("size")
-            file_size = int(raw_size) if raw_size is not None else None
-            filename = data.get("name") or None
-            mime_type = data.get("mimeType") or "video/*"
-
-            logger.info(
-                "[drive_api] Fetched metadata for %s: name='%s' size=%s mime=%s",
-                clean_id, filename, file_size, mime_type,
-            )
-
+        if status_code == 404:
+            logger.warning("[drive_api] File %s not found (HTTP 404)", clean_id)
             return DriveFileMetadata(
                 drive_id=clean_id,
-                filename=filename,
-                file_size=file_size,
-                mime_type=mime_type,
-                status="ok",
+                status="not_found",
+                error_message="File not found or inaccessible in Google Drive.",
             )
+
+        if status_code != 200:
+            err_msg = data.get("error", {}).get("message", (raw_err or "")[:120])
+            logger.warning("[drive_api] Drive API HTTP %d for %s: %s", status_code, clean_id, err_msg)
+
+            if "notFound" in str(data) or status_code in (400, 403, 404):
+                return DriveFileMetadata(
+                    drive_id=clean_id,
+                    status="not_found",
+                    error_message=f"Google Drive file inaccessible or not found: {err_msg}",
+                )
+            return DriveFileMetadata(
+                drive_id=clean_id,
+                status="error",
+                error_message=f"Drive API error ({status_code}): {err_msg}",
+            )
+
+        if data.get("trashed"):
+            logger.warning("[drive_api] File %s is trashed", clean_id)
+            return DriveFileMetadata(
+                drive_id=clean_id,
+                status="not_found",
+                error_message="File is in Google Drive trash.",
+            )
+
+        raw_size = data.get("size")
+        file_size = int(raw_size) if raw_size is not None else None
+        filename = data.get("name") or None
+        mime_type = data.get("mimeType") or "video/*"
+
+        logger.info(
+            "[drive_api] Fetched metadata for %s: name='%s' size=%s mime=%s",
+            clean_id, filename, file_size, mime_type,
+        )
+
+        return DriveFileMetadata(
+            drive_id=clean_id,
+            filename=filename,
+            file_size=file_size,
+            mime_type=mime_type,
+            status="ok",
+        )
 
     except Exception as exc:
         logger.error("[drive_api] Request failed for %s: %s", clean_id, exc)

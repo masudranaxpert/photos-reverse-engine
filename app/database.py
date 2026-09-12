@@ -1,6 +1,11 @@
+from datetime import datetime, timezone
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
+
+def utc_now_naive() -> datetime:
+    """Return naive UTC datetime for SQLite compatibility."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (

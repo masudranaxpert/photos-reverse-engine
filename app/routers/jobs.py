@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.database import get_db
+from app.database import get_db, utc_now_naive
+from app.logging_config import logger
 from app.models import BackgroundJob
 from app.schemas import JobResponse
 from app.security import get_current_admin
@@ -68,10 +69,6 @@ class JobUpdateRequest(BaseModel):
     reset_to_default: Optional[bool] = False
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
 @router.post("/{job_id}/run-now", response_model=JobResponse)
 async def trigger_job_now(
     job_id: int,
@@ -86,7 +83,7 @@ async def trigger_job_now(
             raise HTTPException(status_code=404, detail="Job not found")
 
         job.status = "pending"
-        job.next_run_at = _utc_now()
+        job.next_run_at = utc_now_naive()
         await db.flush()
         await db.refresh(job)
 
@@ -121,7 +118,7 @@ async def update_job(
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")
 
-        now = _utc_now()
+        now = utc_now_naive()
         should_run_now = req.run_now or req.trigger_now
         from app.services.scheduler import reschedule_job, trigger_job_now as aps_trigger
 

@@ -10,7 +10,7 @@ from math import ceil
 
 from sqlalchemy import delete, func, select, update
 
-from app.database import get_db
+from app.database import get_db, utc_now_naive
 from app.models import SystemNotice
 
 logger = logging.getLogger("photos_engine.notices")
@@ -27,7 +27,8 @@ async def record_notice(
 ) -> None:
     """Upsert an active notice by source so we keep latest info without spamming rows."""
     try:
-        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        now = utc_now_naive()
+        need_prune = False
         async with get_db() as db:
             stmt = (
                 select(SystemNotice)
@@ -52,8 +53,10 @@ async def record_notice(
                     is_active=True,
                 )
                 db.add(notice)
-        # Keep the audit table bounded regardless of how many notices stream in.
-        await prune_audit_log()
+                need_prune = True
+
+        if need_prune:
+            await prune_audit_log()
     except Exception as exc:
         logger.error("[notice] Failed to record notice: %s", exc)
 

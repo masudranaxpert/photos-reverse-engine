@@ -10,23 +10,11 @@ from pathlib import Path
 from typing import Optional, Tuple
 from loguru import logger
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 LOGS_DIR = BASE_DIR / "logs"
-
-# Ensure .env is loaded if present
-try:
-    from dotenv import load_dotenv
-    load_dotenv(BASE_DIR / ".env")
-except ImportError:
-    env_file = BASE_DIR / ".env"
-    if env_file.exists():
-        with open(env_file, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    if k.strip() not in os.environ:
-                        os.environ[k.strip()] = v.strip().strip("'\"")
+load_dotenv(BASE_DIR / ".env")
 
 
 def get_log_formats() -> Tuple[str, str]:

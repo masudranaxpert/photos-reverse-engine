@@ -6,18 +6,13 @@ from typing import Optional
 from sqlalchemy import delete, select
 
 from app.config import DOWNLOAD_CACHE_TTL_SECONDS
-from app.database import get_db
+from app.database import get_db, utc_now_naive
 from app.models import DownloadCache
 
 logger = logging.getLogger(__name__)
 
 # Fast in-memory cache: media_key -> (data_dict, monotonic_expiry)
 _url_mem_cache: dict[str, tuple[dict, float]] = {}
-
-
-def _utc_now_naive() -> datetime:
-    """Return naive UTC datetime compatible with SQLite DateTime comparison."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 async def get_cached_url(media_key: str) -> Optional[dict]:
@@ -30,7 +25,7 @@ async def get_cached_url(media_key: str) -> Optional[dict]:
             return data
         _url_mem_cache.pop(media_key, None)
 
-    now = _utc_now_naive()
+    now = utc_now_naive()
     async with get_db(write=False) as db:
         stmt = select(DownloadCache).where(
             DownloadCache.media_key == media_key,
@@ -72,7 +67,7 @@ async def set_cached_url(
         _url_mem_cache.clear()
     _url_mem_cache[media_key] = (data, time.monotonic() + ttl_seconds)
 
-    expires_at = _utc_now_naive() + timedelta(seconds=ttl_seconds)
+    expires_at = utc_now_naive() + timedelta(seconds=ttl_seconds)
     async with get_db() as db:
         cache_entry = DownloadCache(
             media_key=media_key,
@@ -92,7 +87,7 @@ async def cleanup_expired_cache() -> int:
     for k in expired_keys:
         _url_mem_cache.pop(k, None)
 
-    now = _utc_now_naive()
+    now = utc_now_naive()
     async with get_db() as db:
         stmt = delete(DownloadCache).where(DownloadCache.expires_at <= now)
         res = await db.execute(stmt)

@@ -6,20 +6,15 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import delete, func, select
 
 from app.config import STREAM_CACHE_TTL_SECONDS
-from app.database import get_db
+from app.database import get_db, utc_now_naive
 from app.models import StreamCache
 
 logger = logging.getLogger(__name__)
 
 
-def _utc_now_naive() -> datetime:
-    """Return naive UTC datetime compatible with SQLite DateTime comparison."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
 async def get_cached_stream(media_key: str) -> Optional[Dict[str, Any]]:
     """Retrieve non-expired parsed stream and manifest data for media_key."""
-    now = _utc_now_naive()
+    now = utc_now_naive()
     async with get_db(write=False) as db:
         stmt = select(StreamCache).where(
             StreamCache.media_key == media_key,
@@ -53,7 +48,7 @@ async def get_cached_stream(media_key: str) -> Optional[Dict[str, Any]]:
 
 async def is_stream_cached(media_key: str) -> bool:
     """Quickly check if an unexpired stream cache entry exists for media_key."""
-    now = _utc_now_naive()
+    now = utc_now_naive()
     async with get_db(write=False) as db:
         stmt = select(func.count(StreamCache.id)).where(
             StreamCache.media_key == media_key,
@@ -74,7 +69,7 @@ async def set_cached_stream(
     if not media_key or not video_streams:
         return
 
-    now = _utc_now_naive()
+    now = utc_now_naive()
     expires_at = now + timedelta(seconds=ttl_seconds)
     video_json = json.dumps(video_streams)
     audio_json = json.dumps(audio_streams) if audio_streams else None
@@ -105,7 +100,7 @@ async def set_cached_stream(
 
 async def cleanup_expired_stream_cache() -> int:
     """Delete expired entries from stream_cache table."""
-    now = _utc_now_naive()
+    now = utc_now_naive()
     async with get_db() as db:
         stmt = delete(StreamCache).where(StreamCache.expires_at <= now)
         res = await db.execute(stmt)

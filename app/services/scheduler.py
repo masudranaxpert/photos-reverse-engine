@@ -11,7 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 from sqlalchemy import delete, select, update
 
-from app.database import get_db
+from app.database import get_db, utc_now_naive
 from app.logging_config import logger
 from app.models import BackgroundJob
 
@@ -28,11 +28,6 @@ DEFAULT_JOB_INTERVALS: Dict[str, int] = {
 scheduler = AsyncIOScheduler(timezone=timezone.utc)
 
 
-def _utc_now() -> datetime:
-    """Return naive UTC datetime for SQLite compatibility."""
-    return datetime.now(timezone.utc).replace(tzinfo=None)
-
-
 async def _run_managed_job(
     job_type: str,
     task_func: Callable[[], Coroutine[Any, Any, Optional[Dict[str, Any]]]],
@@ -41,7 +36,7 @@ async def _run_managed_job(
     Wrapper around scheduled tasks.
     Updates DB status to 'running', executes the coroutine, then records 'done' or 'failed'.
     """
-    now = _utc_now()
+    now = utc_now_naive()
     async with get_db() as db:
         await db.execute(
             update(BackgroundJob)
@@ -64,7 +59,7 @@ async def _run_managed_job(
                 .values(
                     status="pending",
                     result=result_json,
-                    last_run_at=_utc_now(),
+                    last_run_at=utc_now_naive(),
                     next_run_at=next_run,
                 )
             )
@@ -75,7 +70,7 @@ async def _run_managed_job(
             await db.execute(
                 update(BackgroundJob)
                 .where(BackgroundJob.job_type == job_type)
-                .values(status="failed", result=err_json, last_run_at=_utc_now())
+                .values(status="failed", result=err_json, last_run_at=utc_now_naive())
             )
 
 
@@ -122,7 +117,7 @@ async def ensure_jobs_in_db() -> Dict[str, int]:
                     job_type=job_type,
                     status="pending",
                     run_every_sec=default_sec,
-                    next_run_at=_utc_now(),
+                    next_run_at=utc_now_naive(),
                 )
                 db.add(job)
                 intervals[job_type] = default_sec
