@@ -129,7 +129,6 @@ async def _resolve_token(token: str) -> tuple[DriveRef | None, PermanentItem | N
 import time
 
 _inflight_resolves: dict[str, asyncio.Task] = {}
-_negative_cache: dict[str, float] = {}
 
 
 async def _resolve_download_url_upstream(media_key: str, source: str, timeout: float) -> str | None:
@@ -140,7 +139,6 @@ async def _resolve_download_url_upstream(media_key: str, source: str, timeout: f
             info = await client.get_download_url_async(media_key, timeout=timeout)
             if info.download_url:
                 await set_cached_url(media_key, info.download_url, dedup_key=getattr(info, "dedup_key", None), source="mobile")
-                _negative_cache.pop(media_key, None)
                 return info.download_url
         except Exception as exc:
             logger.warning("[download] Mobile URL resolve failed for %s: %s", media_key, exc)
@@ -152,7 +150,6 @@ async def _resolve_download_url_upstream(media_key: str, source: str, timeout: f
                 info = await client.get_download_url_async(media_key, timeout=timeout)
                 if info.download_url:
                     await set_cached_url(media_key, info.download_url, dedup_key=getattr(info, "dedup_key", None), source="web")
-                    _negative_cache.pop(media_key, None)
                     return info.download_url
             finally:
                 loop = asyncio.get_running_loop()
@@ -160,8 +157,6 @@ async def _resolve_download_url_upstream(media_key: str, source: str, timeout: f
         except Exception as exc:
             logger.warning("[download] Web URL resolve failed for %s: %s", media_key, exc)
 
-    # Negative cache for 12 seconds so repeated polls do not spawn duplicate RPCs
-    _negative_cache[media_key] = time.monotonic() + 12.0
     return None
 
 
@@ -170,10 +165,6 @@ async def _get_download_url(media_key: str, source: str, timeout: float = 10.0) 
     cached = await get_cached_url(media_key)
     if cached and cached.get("download_url"):
         return cached["download_url"]
-
-    # Short-circuit if key recently failed upstream to prevent poll storm
-    if time.monotonic() < _negative_cache.get(media_key, 0.0):
-        return None
 
     # Single-flight deduplication: collapse concurrent resolves for identical media_key
     if media_key in _inflight_resolves:
@@ -186,12 +177,8 @@ async def _get_download_url(media_key: str, source: str, timeout: float = 10.0) 
     task = loop.create_task(_resolve_download_url_upstream(media_key, source, timeout))
     _inflight_resolves[media_key] = task
     try:
-        url = await task
-        if not url:
-            _negative_cache[media_key] = time.monotonic() + 12.0
-        return url
+        return await task
     except Exception:
-        _negative_cache[media_key] = time.monotonic() + 12.0
         return None
     finally:
         _inflight_resolves.pop(media_key, None)
