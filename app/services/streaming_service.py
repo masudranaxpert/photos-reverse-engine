@@ -40,17 +40,24 @@ def parse_mpd_streams(manifest_xml: str) -> Dict[str, List[Dict[str, Any]]]:
             codecs = rep.attrib.get("codecs", "")
 
             # User-friendly label (1080P, 720P, 480P, 360P, etc.)
+            # Use the shorter dimension (height for landscape, width for portrait)
             label = ""
-            if w and int(w) >= 1900:
+            w_int = int(w) if w and w.isdigit() else 0
+            h_int = int(h) if h and h.isdigit() else 0
+            dim = min(w_int, h_int) if (w_int and h_int) else (w_int or h_int)
+
+            if dim >= 1000:
                 label = "1080P"
-            elif w and int(w) >= 1200:
+            elif dim >= 700:
                 label = "720P"
-            elif w and int(w) >= 800:
+            elif dim >= 450:
                 label = "480P"
-            elif w and int(w) >= 600:
+            elif dim >= 340:
                 label = "360P"
-            elif h:
-                label = f"{h}P"
+            elif dim >= 220:
+                label = "240P"
+            elif dim > 0:
+                label = "144P"
             elif bw > 0:
                 label = f"{bw // 1000}kbps"
 
