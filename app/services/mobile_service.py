@@ -1,8 +1,9 @@
+import asyncio
 import logging
 import sys
 import urllib.parse
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from sqlalchemy import select
 
@@ -74,19 +75,42 @@ _bg_client_cache: dict[int, tuple[str, PhotosEngineClient]] = {}
 # 3. Streaming & media operations: dedicated PhotosEngineClient per account
 _streaming_client_cache: dict[int, tuple[str, PhotosEngineClient]] = {}
 
+_pool_init_lock = asyncio.Lock()
+_POOL_SIZE = 2
+
+
+def _close_client_entry(entry: Any) -> None:
+    """Explicitly close PhotosEngineClient instances to release Go CGo handles."""
+    if not entry:
+        return
+    try:
+        _, target = entry
+        items = target if isinstance(target, list) else [target]
+        for c in items:
+            try:
+                if hasattr(c, "close"):
+                    c.close()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
 
 def invalidate_mobile_client_cache(account_id: Optional[int] = None) -> None:
-    """Evict cached PhotosEngineClient and account instances when credentials change."""
+    """Evict cached PhotosEngineClient and account instances when credentials change, closing Go handles."""
     global _account_cache
     _account_cache = (None, 0.0)
     if account_id is not None:
-        _download_clients_pool.pop(account_id, None)
-        _bg_client_cache.pop(account_id, None)
-        _streaming_client_cache.pop(account_id, None)
+        _close_client_entry(_download_clients_pool.pop(account_id, None))
+        _close_client_entry(_bg_client_cache.pop(account_id, None))
+        _close_client_entry(_streaming_client_cache.pop(account_id, None))
     else:
-        _download_clients_pool.clear()
-        _bg_client_cache.clear()
-        _streaming_client_cache.clear()
+        for k in list(_download_clients_pool):
+            _close_client_entry(_download_clients_pool.pop(k, None))
+        for k in list(_bg_client_cache):
+            _close_client_entry(_bg_client_cache.pop(k, None))
+        for k in list(_streaming_client_cache):
+            _close_client_entry(_streaming_client_cache.pop(k, None))
 
 
 async def get_mobile_client(
@@ -97,7 +121,7 @@ async def get_mobile_client(
 ) -> Tuple[PhotosEngineClient, MobileAccount]:
     """
     Instantiate or retrieve cached PhotosEngineClient strictly from active database mobile_accounts row.
-    - client_type="download" (default): round-robins across a pool of 2 download clients.
+    - client_type="download" (default): round-robins across a pool of 2 download clients with race-free lock.
     - client_type="worker" or background=True: returns dedicated worker client (isolated from user downloads).
     - client_type="streaming": returns dedicated streaming / media operations client.
     """
@@ -117,33 +141,53 @@ async def get_mobile_client(
         if cached and cached[0] == auth_data:
             return cached[1], account
 
-        bg_client = PhotosEngineClient(auth_data=auth_data)
-        _bg_client_cache[account.id] = (auth_data, bg_client)
-        return bg_client, account
+        async with _pool_init_lock:
+            cached = _bg_client_cache.get(account.id)
+            if cached and cached[0] == auth_data:
+                return cached[1], account
+
+            _close_client_entry(_bg_client_cache.pop(account.id, None))
+            bg_client = await asyncio.to_thread(PhotosEngineClient, auth_data=auth_data)
+            _bg_client_cache[account.id] = (auth_data, bg_client)
+            return bg_client, account
 
     if effective_type == "streaming":
         cached = _streaming_client_cache.get(account.id)
         if cached and cached[0] == auth_data:
             return cached[1], account
 
-        streaming_client = PhotosEngineClient(auth_data=auth_data)
-        _streaming_client_cache[account.id] = (auth_data, streaming_client)
-        return streaming_client, account
+        async with _pool_init_lock:
+            cached = _streaming_client_cache.get(account.id)
+            if cached and cached[0] == auth_data:
+                return cached[1], account
+
+            _close_client_entry(_streaming_client_cache.pop(account.id, None))
+            streaming_client = await asyncio.to_thread(PhotosEngineClient, auth_data=auth_data)
+            _streaming_client_cache[account.id] = (auth_data, streaming_client)
+            return streaming_client, account
 
     # Request / Download path: pool of 2 clients
     cached_pool = _download_clients_pool.get(account.id)
-    if cached_pool and cached_pool[0] == auth_data and len(cached_pool[1]) >= 2:
+    if cached_pool and cached_pool[0] == auth_data and len(cached_pool[1]) >= _POOL_SIZE:
         clients = cached_pool[1]
         client = clients[_download_pool_idx % len(clients)]
         _download_pool_idx += 1
         return client, account
 
-    # Initialize 2 dedicated download clients
-    pool = [
-        PhotosEngineClient(auth_data=auth_data),
-        PhotosEngineClient(auth_data=auth_data),
-    ]
-    _download_clients_pool[account.id] = (auth_data, pool)
-    client = pool[_download_pool_idx % len(pool)]
-    _download_pool_idx += 1
-    return client, account
+    async with _pool_init_lock:
+        cached_pool = _download_clients_pool.get(account.id)
+        if cached_pool and cached_pool[0] == auth_data and len(cached_pool[1]) >= _POOL_SIZE:
+            clients = cached_pool[1]
+            client = clients[_download_pool_idx % len(clients)]
+            _download_pool_idx += 1
+            return client, account
+
+        _close_client_entry(_download_clients_pool.pop(account.id, None))
+        pool = [
+            await asyncio.to_thread(PhotosEngineClient, auth_data=auth_data)
+            for _ in range(_POOL_SIZE)
+        ]
+        _download_clients_pool[account.id] = (auth_data, pool)
+        client = pool[_download_pool_idx % len(pool)]
+        _download_pool_idx += 1
+        return client, account
