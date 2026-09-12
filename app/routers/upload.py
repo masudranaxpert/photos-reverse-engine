@@ -63,7 +63,7 @@ async def _process_upload(
             logger.info("[upload] drive_id=%s previously marked not_found", drive_id)
             raise HTTPException(
                 status_code=404,
-                detail="Google Drive file not found or inaccessible.",
+                detail="File not found or inaccessible.",
             )
         if existing.file_status == "error":
             logger.info("[upload] drive_id=%s previously failed with error. Removing stale record to retry.", drive_id)
@@ -92,19 +92,19 @@ async def _process_upload(
                 token=uuid.uuid4().hex,
                 label=label,
                 file_status="not_found",
-                error_message=meta.error_message or "Google Drive file not found or inaccessible.",
+                error_message="File not found or inaccessible.",
                 api_key_id=api_key_id,
             )
             db.add(dead_ref)
         raise HTTPException(
             status_code=404,
-            detail=meta.error_message or "Google Drive file not found or inaccessible.",
+            detail="File not found or inaccessible.",
         )
     elif meta.status == "error":
         logger.error("[upload] Drive API error for drive_id=%s: %s", drive_id, meta.error_message)
         raise HTTPException(
             status_code=400,
-            detail="Google Drive file could not be accessed. Please check file ID or try again later.",
+            detail="File could not be accessed. Please check file ID or try again later.",
         )
 
     filename = meta.filename
@@ -186,7 +186,7 @@ async def upload_drive_file(
     current_auth: dict = Depends(get_current_admin),
 ):
     """
-    Import a Google Drive file into Google Photos and return a download token.
+    Import file into Instant Engine and return a download token.
     Requires an active API key (X-API-Key header or api_key query) or admin session.
     """
     api_key_id = current_auth.get("key_id") if current_auth.get("auth_type") == "api_key" else None

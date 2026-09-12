@@ -145,7 +145,7 @@ async def health_check():
 
     return {
         "status": "healthy",
-        "engine": "photos_engine_go_core",
+        "engine": "Instant Engine",
         "database": {
             "type": "sqlite",
             "journal_mode": journal_mode,
@@ -155,7 +155,7 @@ async def health_check():
 
 @app.get("/openapi.json", include_in_schema=False)
 async def openapi_endpoint(request: Request):
-    """Dynamic OpenAPI schema: hides all endpoints except upload for unauthenticated visitors."""
+    """Dynamic OpenAPI schema: hides all endpoints and internal models except upload for unauthenticated visitors."""
     full_schema = app.openapi()
     if await is_authenticated_admin(request):
         return JSONResponse(full_schema)
@@ -165,11 +165,23 @@ async def openapi_endpoint(request: Request):
         if path.startswith("/api/upload"):
             filtered_paths[path] = path_item
 
+    filtered_components = {}
+    if "components" in full_schema:
+        upload_schemas = {"UploadRequest", "UploadResponse", "HTTPValidationError", "ValidationError"}
+        filtered_components = {
+            k: v for k, v in full_schema["components"].items() if k != "schemas"
+        }
+        filtered_components["schemas"] = {
+            name: schema
+            for name, schema in full_schema["components"].get("schemas", {}).items()
+            if name in upload_schemas
+        }
+
     filtered_schema = {
         "openapi": full_schema.get("openapi", "3.1.0"),
         "info": full_schema.get("info", {}),
         "paths": filtered_paths,
-        "components": full_schema.get("components", {}),
+        "components": filtered_components,
     }
     return JSONResponse(filtered_schema)
 

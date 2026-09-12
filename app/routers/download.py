@@ -340,7 +340,7 @@ async def player_page(request: Request, token: str):
     if not perm:
         raise HTTPException(
             status_code=400,
-            detail="Streaming is only available for items stored permanently in the Google Photos library.",
+            detail="Streaming is only available for permanent items.",
         )
 
     context = {
@@ -363,7 +363,7 @@ async def get_streaming_manifest(token: str):
     if not perm:
         raise HTTPException(
             status_code=400,
-            detail="Streaming is only available for items stored permanently in the Google Photos library.",
+            detail="Streaming is only available for permanent items.",
         )
 
     # 1. Try 20-min stream cache first (ignoring any stale picasa_otf URLs)
@@ -415,13 +415,13 @@ async def get_streaming_manifest(token: str):
                 content={
                     "success": False,
                     "ready": False,
-                    "detail": "Video is still being processed by Google Photos. Streaming will be available once processing completes.",
+                    "detail": "Video is still being processed by Instant Engine. Streaming will be available once processing completes.",
                 },
             )
         logger.warning("[download] DASH manifest fetch failed for token %s: %s", token, exc)
         raise HTTPException(
             status_code=502,
-            detail=f"Failed to fetch streaming manifest from Google Photos: {exc}",
+            detail="Failed to load video stream. Please try again later.",
         )
 
 
@@ -440,7 +440,8 @@ async def get_streaming_manifest_mpd(token: str):
         stream_data = await get_streaming_data_for_media_key(perm.media_key)
         return Response(content=stream_data["manifest"], media_type="application/dash+xml")
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+        logger.warning("[download] MPD fetch failed for token %s: %s", token, exc)
+        raise HTTPException(status_code=502, detail="Failed to load streaming manifest.")
 
 
 

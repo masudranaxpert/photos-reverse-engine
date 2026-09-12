@@ -105,8 +105,8 @@ async def get_web_client(session_id: Optional[str] = None, allow_inactive: bool 
                 source=f"cookies_{target_session_id}",
             )
             raise HTTPException(
-                status_code=401,
-                detail="Cookies expired: Google Photos redirected to login (HTTP 302). Please update session.",
+                status_code=503,
+                detail="Service is temporarily unavailable. Please try again in a few minutes.",
             )
         raise HTTPException(
             status_code=503,

@@ -48,6 +48,7 @@ class TestFastAPIBigSystem(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertEqual(data["status"], "healthy")
+        self.assertEqual(data["engine"], "Instant Engine")
         self.assertEqual(data["database"]["journal_mode"], "wal")
 
     def test_02_admin_login(self):
@@ -364,6 +365,9 @@ class TestFastAPIBigSystem(unittest.TestCase):
         self.assertEqual(res_unauth.status_code, 200)
         unauth_paths = list(res_unauth.json()["paths"].keys())
         self.assertEqual(unauth_paths, ["/api/upload"])
+        unauth_schemas = res_unauth.json().get("components", {}).get("schemas", {})
+        self.assertNotIn("MediaItemResponse", unauth_schemas)
+        self.assertNotIn("MobileAccountResponse", unauth_schemas)
 
         # 2. Authenticated request with Bearer token
         res_auth = unauth_client.get("/openapi.json", headers=self.headers)
