@@ -63,8 +63,13 @@ async def get_active_mobile_account(account_id: Optional[int] = None) -> Optiona
         return account
 
 
-# In-memory client cache: account_id -> (auth_data, PhotosEngineClient)
-_client_cache: dict[int, tuple[str, PhotosEngineClient]] = {}
+# In-memory client caches
+# Request path: pool of 2 PhotosEngineClients per account for concurrent download resolution
+_download_clients_pool: dict[int, tuple[str, list[PhotosEngineClient]]] = {}
+_download_pool_idx: int = 0
+
+# Background sweep/worker: dedicated PhotosEngineClient per account
+_bg_client_cache: dict[int, tuple[str, PhotosEngineClient]] = {}
 
 
 def invalidate_mobile_client_cache(account_id: Optional[int] = None) -> None:
@@ -72,25 +77,54 @@ def invalidate_mobile_client_cache(account_id: Optional[int] = None) -> None:
     global _account_cache
     _account_cache = (None, 0.0)
     if account_id is not None:
-        _client_cache.pop(account_id, None)
+        _download_clients_pool.pop(account_id, None)
+        _bg_client_cache.pop(account_id, None)
     else:
-        _client_cache.clear()
+        _download_clients_pool.clear()
+        _bg_client_cache.clear()
 
 
-async def get_mobile_client(account_id: Optional[int] = None) -> Tuple[PhotosEngineClient, MobileAccount]:
+async def get_mobile_client(
+    account_id: Optional[int] = None,
+    *,
+    background: bool = False,
+) -> Tuple[PhotosEngineClient, MobileAccount]:
     """
     Instantiate or retrieve cached PhotosEngineClient strictly from active database mobile_accounts row.
-    Reuses client to preserve Go TokenManager internal memory cache and avoid redundant auth calls.
+    - If background=True: returns dedicated worker client (isolated from user downloads).
+    - If background=False: round-robins across a pool of 2 download clients for high concurrency.
     """
+    global _download_pool_idx
+
     account = await get_active_mobile_account(account_id)
     if not account:
         raise RuntimeError("No active Mobile Auth account found in database. Please add an account via /api/mobile/accounts.")
 
     auth_data = account.auth_data
-    cached = _client_cache.get(account.id)
-    if cached and cached[0] == auth_data:
-        return cached[1], account
 
-    client = PhotosEngineClient(auth_data=auth_data)
-    _client_cache[account.id] = (auth_data, client)
+    if background:
+        cached = _bg_client_cache.get(account.id)
+        if cached and cached[0] == auth_data:
+            return cached[1], account
+
+        bg_client = PhotosEngineClient(auth_data=auth_data)
+        _bg_client_cache[account.id] = (auth_data, bg_client)
+        return bg_client, account
+
+    # Request / Download path: pool of 2 clients
+    cached_pool = _download_clients_pool.get(account.id)
+    if cached_pool and cached_pool[0] == auth_data and len(cached_pool[1]) >= 2:
+        clients = cached_pool[1]
+        client = clients[_download_pool_idx % len(clients)]
+        _download_pool_idx += 1
+        return client, account
+
+    # Initialize 2 dedicated download clients
+    pool = [
+        PhotosEngineClient(auth_data=auth_data),
+        PhotosEngineClient(auth_data=auth_data),
+    ]
+    _download_clients_pool[account.id] = (auth_data, pool)
+    client = pool[_download_pool_idx % len(pool)]
+    _download_pool_idx += 1
     return client, account
