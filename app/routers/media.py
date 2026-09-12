@@ -560,7 +560,7 @@ async def clear_all_permanent_media(current_admin: dict = Depends(get_current_ad
     # 1. Attempt mobile client delete outside DB transaction
     mobile_cleaned = 0
     try:
-        mobile_client, _ = await get_mobile_client()
+        mobile_client, _ = await get_mobile_client(client_type="streaming")
         for mk in media_keys:
             try:
                 if hasattr(mobile_client, "delete_by_media_key_async"):
@@ -781,7 +781,7 @@ async def delete_single_media(
 
     if perm_media_key:
         try:
-            mobile_client, _ = await get_mobile_client()
+            mobile_client, _ = await get_mobile_client(client_type="streaming")
             if hasattr(mobile_client, "delete_by_media_key_async"):
                 await mobile_client.delete_by_media_key_async(perm_media_key)
             elif hasattr(mobile_client, "delete_by_media_key"):

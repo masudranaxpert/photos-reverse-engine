@@ -113,7 +113,7 @@ async def get_streaming_data_for_media_key(media_key: str) -> Dict[str, Any]:
     from app.config import MANIFEST_PROXY_URL
     from app.services.mobile_service import get_mobile_client
 
-    client, _ = await get_mobile_client()
+    client, _ = await get_mobile_client(client_type="streaming")
 
     if MANIFEST_PROXY_URL:
         # Enforce Cloudflare Worker proxy strictly — zero fallback to prevent origin IP leakage

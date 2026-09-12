@@ -64,12 +64,15 @@ async def get_active_mobile_account(account_id: Optional[int] = None) -> Optiona
 
 
 # In-memory client caches
-# Request path: pool of 2 PhotosEngineClients per account for concurrent download resolution
+# 1. Request path: pool of 2 PhotosEngineClients per account for concurrent download resolution
 _download_clients_pool: dict[int, tuple[str, list[PhotosEngineClient]]] = {}
 _download_pool_idx: int = 0
 
-# Background sweep/worker: dedicated PhotosEngineClient per account
+# 2. Background sweep/worker: dedicated PhotosEngineClient per account
 _bg_client_cache: dict[int, tuple[str, PhotosEngineClient]] = {}
+
+# 3. Streaming & media operations: dedicated PhotosEngineClient per account
+_streaming_client_cache: dict[int, tuple[str, PhotosEngineClient]] = {}
 
 
 def invalidate_mobile_client_cache(account_id: Optional[int] = None) -> None:
@@ -79,20 +82,24 @@ def invalidate_mobile_client_cache(account_id: Optional[int] = None) -> None:
     if account_id is not None:
         _download_clients_pool.pop(account_id, None)
         _bg_client_cache.pop(account_id, None)
+        _streaming_client_cache.pop(account_id, None)
     else:
         _download_clients_pool.clear()
         _bg_client_cache.clear()
+        _streaming_client_cache.clear()
 
 
 async def get_mobile_client(
     account_id: Optional[int] = None,
     *,
+    client_type: str = "download",
     background: bool = False,
 ) -> Tuple[PhotosEngineClient, MobileAccount]:
     """
     Instantiate or retrieve cached PhotosEngineClient strictly from active database mobile_accounts row.
-    - If background=True: returns dedicated worker client (isolated from user downloads).
-    - If background=False: round-robins across a pool of 2 download clients for high concurrency.
+    - client_type="download" (default): round-robins across a pool of 2 download clients.
+    - client_type="worker" or background=True: returns dedicated worker client (isolated from user downloads).
+    - client_type="streaming": returns dedicated streaming / media operations client.
     """
     global _download_pool_idx
 
@@ -102,7 +109,10 @@ async def get_mobile_client(
 
     auth_data = account.auth_data
 
-    if background:
+    # Map background=True to worker if client_type was left default
+    effective_type = "worker" if background and client_type == "download" else client_type
+
+    if effective_type in ("worker", "background"):
         cached = _bg_client_cache.get(account.id)
         if cached and cached[0] == auth_data:
             return cached[1], account
@@ -110,6 +120,15 @@ async def get_mobile_client(
         bg_client = PhotosEngineClient(auth_data=auth_data)
         _bg_client_cache[account.id] = (auth_data, bg_client)
         return bg_client, account
+
+    if effective_type == "streaming":
+        cached = _streaming_client_cache.get(account.id)
+        if cached and cached[0] == auth_data:
+            return cached[1], account
+
+        streaming_client = PhotosEngineClient(auth_data=auth_data)
+        _streaming_client_cache[account.id] = (auth_data, streaming_client)
+        return streaming_client, account
 
     # Request / Download path: pool of 2 clients
     cached_pool = _download_clients_pool.get(account.id)
