@@ -658,7 +658,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
             mobile_client, mobile_account = await get_mobile_client()
             for item in pending_promote:
                 try:
-                    result = await mobile_client.import_share_url_async(item.share_url, timeout=25.0)
+                    result = await mobile_client.import_share_url_async(item.share_url, timeout=12.0)
                     import_result = result.get("import_result") if isinstance(result, dict) else result
                     status = (
                         import_result.get("status") if isinstance(import_result, dict)
@@ -671,7 +671,7 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                     ) or []
 
                     if status == 1:
-                        retry_at = _utc_now() + timedelta(minutes=3)
+                        retry_at = _utc_now() + timedelta(minutes=5)
                         async with get_db() as db:
                             await db.execute(
                                 update(TempImport)
@@ -726,7 +726,20 @@ async def _run_pipeline_sweep_logic_internal() -> dict:
                         status, item.media_key, retry_at.strftime("%H:%M:%S"),
                     )
                 except Exception as exc:
-                    logger.warning("[sweep/promote] Failed for media_key=%s: %s", item.media_key, exc)
+                    retry_at = _utc_now() + timedelta(minutes=5)
+                    try:
+                        async with get_db() as db:
+                            await db.execute(
+                                update(TempImport)
+                                .where(TempImport.id == item.id)
+                                .values(promote_after=retry_at)
+                            )
+                    except Exception as db_exc:
+                        logger.warning("[sweep/promote] Failed to update retry_at for %s: %s", item.media_key, db_exc)
+                    logger.warning(
+                        "[sweep/promote] Failed for media_key=%s, will retry after %s: %s",
+                        item.media_key, retry_at.strftime("%H:%M:%S"), exc,
+                    )
         except Exception as exc:
             logger.warning("[sweep/promote] Mobile client error: %s", exc)
 
